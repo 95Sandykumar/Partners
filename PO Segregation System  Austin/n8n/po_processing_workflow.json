@@ -1,0 +1,444 @@
+{
+  "name": "PO Processing Pipeline - Vision AI",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "process-po",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook_trigger",
+      "name": "Webhook - Receive PO",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "po-intake"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Vendor Detection Logic\nconst pdfContent = $input.item.json.body?.text || '';\nconst fileName = $input.item.json.body?.fileName || '';\nconst senderEmail = $input.item.json.body?.senderEmail || '';\n\n// Vendor identification patterns\nconst vendorPatterns = {\n  'linde': {\n    keywords: ['Linde Gas & Equipment', 'LGEPKG', 'linde.com', 'LG.US.PDI.APUSA@linde.com'],\n    emailDomains: ['linde.com'],\n    template: 'linde'\n  },\n  'matheson': {\n    keywords: ['MATHESON', 'The Gas Professionals', 'Tri-Gas', 'mathesongas.com'],\n    emailDomains: ['mathesongas.com'],\n    template: 'matheson'\n  },\n  'powerweld': {\n    keywords: ['POWERWELD', 'powerweldinc.com', 'VALPARAISO'],\n    emailDomains: ['powerweldinc.com'],\n    template: 'powerweld'\n  },\n  'skd_supply': {\n    keywords: ['SKD Supply LLC', 'SKD Supply', 'Bowman Road', 'York, PA'],\n    emailDomains: [],\n    template: 'skd_supply'\n  }\n};\n\nlet detectedVendor = null;\nlet confidence = 0;\nlet matchedBy = '';\n\n// Check email domain first (highest confidence)\nfor (const [vendorId, config] of Object.entries(vendorPatterns)) {\n  for (const domain of config.emailDomains) {\n    if (senderEmail.toLowerCase().includes(domain)) {\n      detectedVendor = vendorId;\n      confidence = 95;\n      matchedBy = 'email_domain';\n      break;\n    }\n  }\n  if (detectedVendor) break;\n}\n\n// If no email match, check content keywords\nif (!detectedVendor) {\n  for (const [vendorId, config] of Object.entries(vendorPatterns)) {\n    for (const keyword of config.keywords) {\n      if (pdfContent.toLowerCase().includes(keyword.toLowerCase())) {\n        detectedVendor = vendorId;\n        confidence = 80;\n        matchedBy = 'keyword_' + keyword;\n        break;\n      }\n    }\n    if (detectedVendor) break;\n  }\n}\n\n// Default to unknown if no match\nif (!detectedVendor) {\n  detectedVendor = 'unknown';\n  confidence = 0;\n  matchedBy = 'none';\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    vendor_detection: {\n      vendor_id: detectedVendor,\n      confidence: confidence,\n      matched_by: matchedBy,\n      template_to_use: detectedVendor !== 'unknown' ? vendorPatterns[detectedVendor]?.template : null\n    }\n  }\n};"
+      },
+      "id": "vendor_detection",
+      "name": "Vendor Detection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "known_vendor",
+              "leftValue": "={{ $json.vendor_detection.vendor_id }}",
+              "rightValue": "unknown",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "vendor_check",
+      "name": "Known Vendor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Load vendor template based on detection\nconst vendorId = $input.item.json.vendor_detection.vendor_id;\n\n// Templates stored as static data or fetched from storage\n// In production, these would come from a database or file storage\nconst templates = {\n  'linde': {\n    vendor_name: 'Linde Gas & Equipment Inc.',\n    po_format: { type: 'complex', typical_pages: 10 },\n    extraction_rules: {\n      line_items: {\n        column_headers: ['Line Num', 'Item Number', 'Description', 'Quantity Ordered', 'Unit Price'],\n        part_number_column: 'Item Number',\n        mfg_part_pattern: 'MFG\\\\s*#\\\\s*:\\\\s*([A-Z0-9-]+)'\n      }\n    },\n    part_number_patterns: ['^CMUC\\\\d{3}-\\\\d{4}$']\n  },\n  'matheson': {\n    vendor_name: 'Matheson Tri-Gas Inc.',\n    po_format: { type: 'complex', has_watermark: true },\n    extraction_rules: {\n      line_items: {\n        column_headers: ['LINE NUM', 'QUANTITY', 'UOM', 'SUP', 'ITEM', 'ITEM DESCRIPTION', 'UNIT PRICE'],\n        part_number_column: 'ITEM',\n        mfg_part_pattern: 'MFG PART\\\\s*#:\\\\s*([0-9-]+)'\n      }\n    },\n    part_number_patterns: ['^CMD\\\\s*\\\\d+$']\n  },\n  'powerweld': {\n    vendor_name: 'Powerweld Inc.',\n    po_format: { type: 'simple', typical_pages: 1 },\n    extraction_rules: {\n      line_items: {\n        column_headers: ['QTY', 'OUR PT. #', 'VEND PT #', 'DESCRIPTION', 'UNIT PRICE'],\n        part_number_column: 'OUR PT. #'\n      }\n    },\n    part_number_patterns: ['^[A-Z]\\\\d{3}$']\n  },\n  'skd_supply': {\n    vendor_name: 'SKD Supply LLC',\n    po_format: { type: 'simple', typical_pages: 1 },\n    extraction_rules: {\n      line_items: {\n        column_headers: ['Item', 'Description', 'Qty', 'Rate', 'Amount'],\n        part_number_column: 'Item'\n      }\n    },\n    part_number_patterns: ['^CMI-', '^BER-', '^LIN-'],\n    part_number_prefixes: { 'CMI-': 'CM Industries', 'BER-': 'Bernard', 'LIN-': 'Lincoln' }\n  }\n};\n\nconst template = templates[vendorId] || null;\n\nreturn {\n  json: {\n    ...$input.item.json,\n    vendor_template: template\n  }\n};"
+      },
+      "id": "load_template",
+      "name": "Load Vendor Template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $credentials.anthropicApi.apiKey }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 4096,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"image\",\n          \"source\": {\n            \"type\": \"base64\",\n            \"media_type\": \"application/pdf\",\n            \"data\": \"{{ $json.body.pdfBase64 }}\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"Extract all line items from this Purchase Order document.\\n\\nVENDOR CONTEXT:\\n- Vendor: {{ $json.vendor_template.vendor_name }}\\n- Expected columns: {{ $json.vendor_template.extraction_rules.line_items.column_headers }}\\n- Part number column: {{ $json.vendor_template.extraction_rules.line_items.part_number_column }}\\n\\nEXTRACT FOR EACH LINE ITEM:\\n1. line_number\\n2. vendor_part_number (their SKU/item code)\\n3. manufacturer_part_number (if different, often labeled MFG #)\\n4. description\\n5. quantity (numeric)\\n6. unit_of_measure\\n7. unit_price (numeric)\\n8. extended_price\\n9. confidence (0-100)\\n\\nOUTPUT FORMAT (JSON only):\\n{\\n  \\\"extraction_metadata\\\": {\\n    \\\"vendor_detected\\\": \\\"string\\\",\\n    \\\"overall_confidence\\\": number\\n  },\\n  \\\"header\\\": {\\n    \\\"po_number\\\": \\\"string\\\",\\n    \\\"po_date\\\": \\\"YYYY-MM-DD\\\",\\n    \\\"vendor_name\\\": \\\"string\\\"\\n  },\\n  \\\"line_items\\\": [\\n    {\\n      \\\"line_number\\\": number,\\n      \\\"vendor_part_number\\\": \\\"string\\\",\\n      \\\"manufacturer_part_number\\\": \\\"string or null\\\",\\n      \\\"description\\\": \\\"string\\\",\\n      \\\"quantity\\\": number,\\n      \\\"unit_of_measure\\\": \\\"string\\\",\\n      \\\"unit_price\\\": number,\\n      \\\"extended_price\\\": number,\\n      \\\"confidence\\\": number\\n    }\\n  ],\\n  \\\"totals\\\": {\\n    \\\"total\\\": number\\n  }\\n}\\n\\nBe precise with part numbers - they are critical. If uncertain, lower confidence score.\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude_vision_extract",
+      "name": "Claude Vision - Extract PO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropic_api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's response and validate extraction\nconst response = $input.item.json;\nlet extractedData;\n\ntry {\n  // Extract JSON from Claude's response\n  const content = response.content[0].text;\n  \n  // Find JSON in response (handle markdown code blocks)\n  let jsonStr = content;\n  const jsonMatch = content.match(/```json\\n?([\\s\\S]*?)\\n?```/);\n  if (jsonMatch) {\n    jsonStr = jsonMatch[1];\n  } else {\n    // Try to find raw JSON\n    const startIdx = content.indexOf('{');\n    const endIdx = content.lastIndexOf('}');\n    if (startIdx !== -1 && endIdx !== -1) {\n      jsonStr = content.substring(startIdx, endIdx + 1);\n    }\n  }\n  \n  extractedData = JSON.parse(jsonStr);\n} catch (e) {\n  extractedData = {\n    error: 'Failed to parse extraction response',\n    raw_response: response.content[0]?.text,\n    parse_error: e.message\n  };\n}\n\n// Validate and calculate overall confidence\nlet validationIssues = [];\nlet lineConfidences = [];\n\nif (extractedData.line_items) {\n  for (const item of extractedData.line_items) {\n    lineConfidences.push(item.confidence || 50);\n    \n    // Validation checks\n    if (!item.vendor_part_number) {\n      validationIssues.push(`Line ${item.line_number}: Missing part number`);\n    }\n    if (item.quantity <= 0 || item.quantity > 10000) {\n      validationIssues.push(`Line ${item.line_number}: Unusual quantity ${item.quantity}`);\n    }\n    if (item.unit_price < 0) {\n      validationIssues.push(`Line ${item.line_number}: Negative price`);\n    }\n    // Math check\n    const expectedExtended = item.quantity * item.unit_price;\n    if (Math.abs(expectedExtended - item.extended_price) > 0.02) {\n      validationIssues.push(`Line ${item.line_number}: Price math mismatch`);\n    }\n  }\n}\n\nconst avgConfidence = lineConfidences.length > 0 \n  ? lineConfidences.reduce((a, b) => a + b, 0) / lineConfidences.length \n  : 0;\n\n// Determine routing based on confidence\nlet confidenceLevel;\nif (avgConfidence >= 85) {\n  confidenceLevel = 'high';\n} else if (avgConfidence >= 60) {\n  confidenceLevel = 'medium';\n} else {\n  confidenceLevel = 'low';\n}\n\nreturn {\n  json: {\n    extracted_data: extractedData,\n    validation: {\n      issues: validationIssues,\n      issue_count: validationIssues.length,\n      average_confidence: avgConfidence,\n      confidence_level: confidenceLevel,\n      requires_review: confidenceLevel !== 'high' || validationIssues.length > 0\n    },\n    original_request: $('Load Vendor Template').item.json\n  }\n};"
+      },
+      "id": "parse_validate",
+      "name": "Parse & Validate Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "high_confidence",
+              "leftValue": "={{ $json.validation.confidence_level }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "no_issues",
+              "leftValue": "={{ $json.validation.issue_count }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "confidence_router",
+      "name": "Confidence Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Part Number Matching Logic\nconst extractedData = $input.item.json.extracted_data;\nconst vendorId = $input.item.json.original_request.vendor_detection.vendor_id;\n\n// In production, this would query your actual database\n// For now, using a mock vendor_mappings table\nconst vendorMappings = {\n  // Vendor Part -> Internal SKU\n  'B422': { internal_sku: 'TRIG-600V', confidence: 100 },\n  'CMUC315-3545': { internal_sku: 'GUN-300A-15', confidence: 100 },\n  'C315-3545': { internal_sku: 'GUN-300A-15', confidence: 95 },\n  'CMD 4636001': { internal_sku: 'HEAD-INS-046', confidence: 100 },\n  '046-36-001': { internal_sku: 'HEAD-INS-046', confidence: 95 },\n  // Add more mappings as you build the database\n};\n\n// Normalize part number for matching\nfunction normalizePart(partNum) {\n  if (!partNum) return '';\n  return partNum\n    .toUpperCase()\n    .replace(/[\\s-]/g, '')\n    .replace(/^(CMI|BER|LIN)/, ''); // Remove SKD prefixes\n}\n\n// Match each line item\nconst matchedItems = [];\nconst unmatchedItems = [];\n\nfor (const item of extractedData.line_items || []) {\n  const vendorPart = item.vendor_part_number;\n  const mfgPart = item.manufacturer_part_number;\n  \n  let match = null;\n  let matchType = null;\n  \n  // Try exact match on vendor part\n  if (vendorMappings[vendorPart]) {\n    match = vendorMappings[vendorPart];\n    matchType = 'exact_vendor';\n  }\n  // Try exact match on MFG part\n  else if (mfgPart && vendorMappings[mfgPart]) {\n    match = vendorMappings[mfgPart];\n    matchType = 'exact_mfg';\n  }\n  // Try normalized match\n  else {\n    const normalizedVendor = normalizePart(vendorPart);\n    const normalizedMfg = normalizePart(mfgPart);\n    \n    for (const [key, value] of Object.entries(vendorMappings)) {\n      if (normalizePart(key) === normalizedVendor || normalizePart(key) === normalizedMfg) {\n        match = { ...value, confidence: value.confidence - 10 };\n        matchType = 'normalized';\n        break;\n      }\n    }\n  }\n  \n  const matchedItem = {\n    ...item,\n    match_result: match ? {\n      internal_sku: match.internal_sku,\n      match_confidence: match.confidence,\n      match_type: matchType\n    } : null,\n    needs_mapping: !match\n  };\n  \n  if (match) {\n    matchedItems.push(matchedItem);\n  } else {\n    unmatchedItems.push(matchedItem);\n  }\n}\n\nreturn {\n  json: {\n    po_number: extractedData.header?.po_number,\n    vendor_id: vendorId,\n    matched_items: matchedItems,\n    unmatched_items: unmatchedItems,\n    summary: {\n      total_lines: (extractedData.line_items || []).length,\n      matched_count: matchedItems.length,\n      unmatched_count: unmatchedItems.length,\n      match_rate: matchedItems.length / Math.max((extractedData.line_items || []).length, 1) * 100\n    },\n    original_extraction: extractedData\n  }\n};"
+      },
+      "id": "part_matching",
+      "name": "Part Number Matching",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Review Queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "po_number": "={{ $json.extracted_data.header.po_number }}",
+            "vendor": "={{ $json.original_request.vendor_detection.vendor_id }}",
+            "confidence": "={{ $json.validation.average_confidence }}",
+            "issues": "={{ $json.validation.issues.join('; ') }}",
+            "line_items_json": "={{ JSON.stringify($json.extracted_data.line_items) }}",
+            "status": "pending_review",
+            "created_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "add_to_review_queue",
+      "name": "Add to Review Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Processed POs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "po_number": "={{ $json.po_number }}",
+            "vendor_id": "={{ $json.vendor_id }}",
+            "total_lines": "={{ $json.summary.total_lines }}",
+            "matched_lines": "={{ $json.summary.matched_count }}",
+            "match_rate": "={{ $json.summary.match_rate }}",
+            "status": "={{ $json.summary.unmatched_count > 0 ? 'partial_match' : 'fully_matched' }}",
+            "processed_at": "={{ new Date().toISOString() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save_processed",
+      "name": "Save to Processed POs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1850, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Unknown Vendors",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "file_name": "={{ $json.body.fileName }}",
+            "sender_email": "={{ $json.body.senderEmail }}",
+            "received_at": "={{ new Date().toISOString() }}",
+            "status": "needs_template"
+          }
+        },
+        "options": {}
+      },
+      "id": "unknown_vendor_queue",
+      "name": "Unknown Vendor Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, po_number: $json.po_number, match_rate: $json.summary.match_rate, status: $json.summary.unmatched_count > 0 ? 'partial_match' : 'fully_matched' }) }}",
+        "options": {}
+      },
+      "id": "success_response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2050, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, status: 'pending_review', reason: $json.validation.confidence_level + ' confidence', issues: $json.validation.issues }) }}",
+        "options": {}
+      },
+      "id": "review_response",
+      "name": "Review Queue Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, status: 'unknown_vendor', message: 'Vendor not recognized. Added to queue for template creation.' }) }}",
+        "options": {}
+      },
+      "id": "unknown_vendor_response",
+      "name": "Unknown Vendor Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1050, 400]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive PO": {
+      "main": [
+        [
+          {
+            "node": "Vendor Detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendor Detection": {
+      "main": [
+        [
+          {
+            "node": "Known Vendor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known Vendor?": {
+      "main": [
+        [
+          {
+            "node": "Load Vendor Template",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown Vendor Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Vendor Template": {
+      "main": [
+        [
+          {
+            "node": "Claude Vision - Extract PO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Vision - Extract PO": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Extraction": {
+      "main": [
+        [
+          {
+            "node": "Confidence Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence Check": {
+      "main": [
+        [
+          {
+            "node": "Part Number Matching",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Review Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Part Number Matching": {
+      "main": [
+        [
+          {
+            "node": "Save to Processed POs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Processed POs": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Review Queue": {
+      "main": [
+        [
+          {
+            "node": "Review Queue Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unknown Vendor Queue": {
+      "main": [
+        [
+          {
+            "node": "Unknown Vendor Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-25T00:00:00.000Z",
+  "versionId": "1"
+}

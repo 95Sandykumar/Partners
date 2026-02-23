@@ -1,0 +1,113 @@
+{
+  "vendor_id": "matheson",
+  "vendor_name": "Matheson Tri-Gas Inc.",
+  "version": "1.0.0",
+  "last_updated": "2026-01-25",
+  "po_format": {
+    "type": "complex",
+    "typical_pages": 1,
+    "has_watermark": true,
+    "watermark_text": "MATHESON The Gas Professionals",
+    "has_tables": true,
+    "layout": "structured_with_colored_headers"
+  },
+  "identification": {
+    "keywords": ["MATHESON", "The Gas Professionals", "Tri-Gas", "mathesongas.com"],
+    "email_domains": ["mathesongas.com"],
+    "header_patterns": ["PURCHASE ORDER:\\s*\\d+"],
+    "logo_indicator": "Matheson logo with tagline",
+    "address_indicators": ["IRVING, TX", "LAKE CAROLYN PKWY"]
+  },
+  "extraction_rules": {
+    "po_number": {
+      "location": "top_right",
+      "label": "PURCHASE ORDER:",
+      "pattern": "PURCHASE ORDER:\\s*(\\d+)",
+      "example": "4647948"
+    },
+    "po_date": {
+      "label": "DATE:",
+      "pattern": "DATE:\\s*(\\d{2}/\\d{2}/\\d{2})",
+      "format": "MM/DD/YY"
+    },
+    "vendor_num": {
+      "label": "VENDOR NUM:",
+      "pattern": "VENDOR NUM:\\s*([A-Z]\\d+)"
+    },
+    "vendor_info": {
+      "location": "left_box",
+      "label": "VENDOR",
+      "box_style": "bordered"
+    },
+    "ship_to": {
+      "location": "right_box",
+      "label": "SHIP TO",
+      "box_style": "bordered"
+    },
+    "invoice_to": {
+      "location": "top_right_box",
+      "label": "INVOICE"
+    },
+    "line_items": {
+      "table_structure": "formal_table_with_colored_headers",
+      "header_row_style": "dark_background",
+      "column_headers": ["LINE NUM", "QUANTITY", "UOM", "SUP", "ITEM", "ITEM DESCRIPTION", "UNIT PRICE", "EXTENDED PRICE", "DUE DATE"],
+      "part_number_column": "ITEM",
+      "supplier_code_column": "SUP",
+      "description_includes_mfg": true,
+      "mfg_part_pattern": "MFG PART\\s*#:\\s*([0-9-]+)",
+      "notes": "ITEM column contains their code (CMD prefix), MFG PART # in description is your part number"
+    },
+    "special_instructions": {
+      "location": "above_table",
+      "pattern": "\\*\\*.*?\\*\\*"
+    },
+    "totals": {
+      "label": "TOTAL",
+      "location": "bottom_right"
+    }
+  },
+  "part_number_patterns": [
+    "^CMD\\s*\\d+$",
+    "^\\d{3}-\\d{2}-\\d{3}$"
+  ],
+  "field_mappings": {
+    "their_part_to_extract": "ITEM",
+    "mfg_part_to_extract": "MFG PART #",
+    "supplier_code": "SUP",
+    "notes": "Matheson uses 'CMD' prefix in ITEM column. SUP column indicates supplier code. MFG PART # is your actual part number."
+  },
+  "sample_extractions": [
+    {
+      "raw_text": "002    200 EA    CMD 4636001    CM HEAD INSULATOR 046-36-001    3.28    656.00 ASAP\n                                MFG PART #:    046-36-001",
+      "extracted": {
+        "line": 2,
+        "their_part": "CMD 4636001",
+        "mfg_part": "046-36-001",
+        "description": "CM HEAD INSULATOR 046-36-001",
+        "qty": 200,
+        "uom": "EA",
+        "supplier_code": "CMD",
+        "unit_price": 3.28,
+        "extended_price": 656.00,
+        "due_date": "ASAP"
+      }
+    }
+  ],
+  "extraction_challenges": [
+    "Watermark overlay may interfere with OCR - Vision AI recommended",
+    "SUP column contains supplier abbreviation (CMD = CM Industries)",
+    "MFG PART # is on separate line within description cell",
+    "Colored header row may affect text extraction",
+    "Special instructions scattered throughout (***...***)"
+  ],
+  "special_codes": {
+    "CMD": "CM Industries (your company)",
+    "supplier_codes_meaning": "SUP column indicates which manufacturer/supplier"
+  },
+  "confidence_adjustments": {
+    "watermark_penalty": -10,
+    "mfg_part_found_bonus": 15,
+    "cmd_prefix_match_bonus": 10
+  }
+}

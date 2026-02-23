@@ -1,0 +1,117 @@
+{
+  "vendor_id": "linde",
+  "vendor_name": "Linde Gas & Equipment Inc.",
+  "version": "1.0.0",
+  "last_updated": "2026-01-25",
+  "po_format": {
+    "type": "complex",
+    "typical_pages": 10,
+    "has_watermark": false,
+    "has_tables": true,
+    "has_legal_terms": true,
+    "layout": "corporate_structured_with_attachments"
+  },
+  "identification": {
+    "keywords": ["Linde Gas & Equipment", "LGEPKG", "linde.com", "LG.US.PDI.APUSA@linde.com"],
+    "email_domains": ["linde.com"],
+    "header_patterns": ["Purchase Order Number\\s+\\d+"],
+    "logo_indicator": "Linde logo in header",
+    "address_indicators": ["Des Moines IA", "PO Box 9224"]
+  },
+  "extraction_rules": {
+    "po_number": {
+      "location": "header_box",
+      "label": "Purchase Order Number",
+      "pattern": "Purchase Order Number\\s+(\\d+)",
+      "example": "77666645"
+    },
+    "revision": {
+      "label": "Revision Number",
+      "pattern": "Revision Number\\s+(\\d+)"
+    },
+    "company_code": {
+      "label": "Company",
+      "pattern": "Company\\s+(\\d+)"
+    },
+    "po_date": {
+      "label": "Order Date:",
+      "pattern": "Order Date:\\s*(\\d{1,2}/\\d{1,2}/\\d{4})",
+      "format": "M/D/YYYY"
+    },
+    "ship_to": {
+      "label": "Ship To:",
+      "section": "left_header_box"
+    },
+    "vendor_info": {
+      "label": "Supplier:",
+      "location": "header_box_right"
+    },
+    "line_items": {
+      "table_structure": "formal_table",
+      "column_headers": ["Line Num", "Item Number", "Description", "Quantity Ordered", "Tran UoM", "Unit Price", "Extended Price", "Tax"],
+      "part_number_column": "Item Number",
+      "description_includes_mfg": true,
+      "mfg_part_pattern": "MFG\\s*#\\s*:\\s*([A-Z0-9-]+)",
+      "notes": "Item Number is their internal code (CMUC prefix), MFG # in description is the manufacturer part"
+    },
+    "totals": {
+      "labels": ["Total Order", "Sales Tax"],
+      "location": "table_footer"
+    }
+  },
+  "part_number_patterns": [
+    "^CMUC\\d{3}-\\d{4}$",
+    "^[A-Z]\\d{3}-\\d{4}$",
+    "^DROPSHIPFREIGHT$"
+  ],
+  "field_mappings": {
+    "their_part_to_extract": "Item Number",
+    "mfg_part_to_extract": "MFG #",
+    "notes": "Linde uses 'CMUC' prefix for their item codes. The MFG # is typically your/manufacturer part number"
+  },
+  "sample_extractions": [
+    {
+      "raw_text": "1.000 CMUC315-3545    1.000 EA    $155.7000    $155.70\nGUN 300A 15FT TWECO DP\nMFG # : C315-3545",
+      "extracted": {
+        "line": 1,
+        "their_part": "CMUC315-3545",
+        "mfg_part": "C315-3545",
+        "description": "GUN 300A 15FT TWECO DP",
+        "qty": 1,
+        "uom": "EA",
+        "unit_price": 155.70,
+        "extended_price": 155.70
+      }
+    },
+    {
+      "raw_text": "2.000 DROPSHIPFREIGHT    2.000 EA    $.0000\nSHIPPING AND HANDLING CHARGE",
+      "extracted": {
+        "line": 2,
+        "their_part": "DROPSHIPFREIGHT",
+        "mfg_part": null,
+        "description": "SHIPPING AND HANDLING CHARGE",
+        "qty": 2,
+        "uom": "EA",
+        "unit_price": 0.00,
+        "is_service_line": true
+      }
+    }
+  ],
+  "extraction_challenges": [
+    "Multi-page document - line items on page 1, legal terms on pages 2-10",
+    "MFG # is embedded in description, not a separate column",
+    "Line numbers use decimal format (1.000, 2.000)",
+    "May include service lines like DROPSHIPFREIGHT",
+    "Includes tax certificates and routing instructions"
+  ],
+  "pages_to_process": {
+    "line_items": [1],
+    "skip_pages": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "reason": "Pages 2-10 are standard legal terms, tax certificates, and shipping instructions"
+  },
+  "confidence_adjustments": {
+    "complex_format_penalty": -5,
+    "mfg_part_found_bonus": 15,
+    "cmuc_prefix_match_bonus": 10
+  }
+}

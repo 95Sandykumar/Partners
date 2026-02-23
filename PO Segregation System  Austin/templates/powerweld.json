@@ -1,0 +1,84 @@
+{
+  "vendor_id": "powerweld",
+  "vendor_name": "Powerweld Inc.",
+  "version": "1.0.0",
+  "last_updated": "2026-01-25",
+  "po_format": {
+    "type": "simple",
+    "typical_pages": 1,
+    "has_watermark": false,
+    "has_tables": true,
+    "layout": "text-based with dashed separators"
+  },
+  "identification": {
+    "keywords": ["POWERWELD", "powerweldinc.com"],
+    "email_domains": ["powerweldinc.com"],
+    "header_patterns": ["P\\.O\\. NUMBER:\\s*V\\d+"],
+    "address_indicators": ["VALPARAISO", "INDIANA"]
+  },
+  "extraction_rules": {
+    "po_number": {
+      "location": "top_right",
+      "label": "P.O. NUMBER:",
+      "pattern": "P\\.O\\.\\s*NUMBER:\\s*(V\\d+)",
+      "example": "V322045"
+    },
+    "po_date": {
+      "location": "left_section",
+      "label": "P.O. DATE:",
+      "pattern": "P\\.O\\.\\s*DATE:\\s*(\\d{2}/\\d{2}/\\d{2})",
+      "format": "MM/DD/YY"
+    },
+    "vendor_info": {
+      "label": "VENDOR:",
+      "includes_address": true
+    },
+    "ship_to": {
+      "label": "DELIVER TO:",
+      "location": "right_of_vendor"
+    },
+    "line_items": {
+      "table_structure": "text_columns_with_dashes",
+      "column_headers": ["QTY", "OUR PT. #", "VEND PT #", "DESCRIPTION", "LOCATION", "UNIT PRICE"],
+      "part_number_column": "OUR PT. #",
+      "vendor_part_column": "VEND PT #",
+      "delimiter": "dashed_lines",
+      "notes": "OUR PT # is Powerweld's internal number, VEND PT # is YOUR part number they're ordering"
+    },
+    "totals": {
+      "label": "PURCHASE ORDER TOTAL",
+      "location": "bottom"
+    }
+  },
+  "part_number_patterns": [
+    "^[A-Z]\\d{3}$",
+    "^[A-Z]{2}\\d+$"
+  ],
+  "field_mappings": {
+    "their_part_to_extract": "OUR PT. #",
+    "your_part_reference": "VEND PT #",
+    "notes": "In Powerweld POs, 'OUR PT #' is THEIR internal number, 'VEND PT #' is how they reference YOUR products"
+  },
+  "sample_extractions": [
+    {
+      "raw_line": "8    B422        B422             TRIGGER 600 V           BB7           42.640",
+      "extracted": {
+        "qty": 8,
+        "their_part": "B422",
+        "your_part_ref": "B422",
+        "description": "TRIGGER 600 V",
+        "location": "BB7",
+        "unit_price": 42.64
+      }
+    }
+  ],
+  "extraction_challenges": [
+    "Simple text format - straightforward extraction",
+    "Column alignment may vary slightly",
+    "VEND PT # often matches OUR PT # for this vendor"
+  ],
+  "confidence_adjustments": {
+    "simple_format_bonus": 10,
+    "single_page_bonus": 5
+  }
+}
