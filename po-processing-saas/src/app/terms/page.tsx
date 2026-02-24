@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
-  description: 'Terms of Service for PO Processing - AI-Powered Purchase Order Management',
+  description: 'Terms of Service for POFlow - AI-Powered Purchase Order Management',
 };
 
 export default function TermsOfService() {
@@ -34,7 +34,7 @@ export default function TermsOfService() {
               1. Acceptance of Terms
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground">
-              By accessing or using PO Processing (&quot;the Service&quot;), you agree to be bound
+              By accessing or using POFlow (&quot;the Service&quot;), you agree to be bound
               by these Terms of Service. If you are using the Service on behalf of an
               organization, you represent that you have the authority to bind that
               organization to these terms. If you do not agree, you may not use the Service.
@@ -46,7 +46,7 @@ export default function TermsOfService() {
               2. Description of Service
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground">
-              PO Processing is an AI-powered purchase order management platform. The Service
+              POFlow is an AI-powered purchase order management platform. The Service
               allows users to upload PDF purchase orders, automatically extract structured
               data using artificial intelligence, match extracted line items to an internal
               product catalog, and review, approve, or reject processed orders. The Service
@@ -140,7 +140,7 @@ export default function TermsOfService() {
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground">
               The Service, including its software, design, documentation, and all related
-              intellectual property, is owned by PO Processing and its licensors. You retain
+              intellectual property, is owned by POFlow and its licensors. You retain
               all rights to the documents you upload and the data extracted from them. Your use
               of the Service does not grant you any ownership interest in the Service itself.
               You may not copy, modify, or distribute any part of the Service without prior
@@ -153,7 +153,7 @@ export default function TermsOfService() {
               9. Limitation of Liability
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground">
-              To the maximum extent permitted by law, PO Processing and its affiliates,
+              To the maximum extent permitted by law, POFlow and its affiliates,
               officers, employees, and agents shall not be liable for any indirect, incidental,
               special, consequential, or punitive damages, including loss of profits, data, or
               business opportunities, arising out of or related to your use of the Service. Our

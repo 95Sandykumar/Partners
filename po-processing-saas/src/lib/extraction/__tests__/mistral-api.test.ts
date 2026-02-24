@@ -1,26 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock the Anthropic SDK
-const mockCreate = vi.fn();
+// Mock fetch globally
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
 
-vi.mock('@anthropic-ai/sdk', () => {
-  class MockAnthropic {
-    messages = { create: mockCreate };
-    constructor() {}
-  }
-  // Also mock static properties used for error checking
-  (MockAnthropic as unknown as Record<string, unknown>).APIError = class extends Error {
-    status: number;
-    constructor(message: string, status: number) {
-      super(message);
-      this.status = status;
-    }
-  };
-  return { default: MockAnthropic };
-});
+// Set the env var before importing
+vi.stubEnv('MISTRAL_API_KEY', 'test-key');
 
-// Dynamic import after mock is set up
-const { extractPOWithVision } = await import('../claude-api');
+const { extractPOWithVision } = await import('../mistral-api');
 
 const VALID_JSON = JSON.stringify({
   extraction_metadata: {
@@ -45,20 +32,23 @@ const VALID_JSON = JSON.stringify({
   extraction_issues: [],
 });
 
-function makeResponse(text: string) {
+function makeResponse(text: string, inputTokens = 1000, outputTokens = 500) {
   return {
-    content: [{ type: 'text', text }],
-    usage: { input_tokens: 1000, output_tokens: 500 },
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: text } }],
+      usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens },
+    }),
   };
 }
 
 beforeEach(() => {
-  mockCreate.mockReset();
+  mockFetch.mockReset();
 });
 
 describe('extractPOWithVision', () => {
   it('extracts JSON from markdown code block', async () => {
-    mockCreate.mockResolvedValue(makeResponse(`\`\`\`json\n${VALID_JSON}\n\`\`\``));
+    mockFetch.mockResolvedValue(makeResponse(`\`\`\`json\n${VALID_JSON}\n\`\`\``));
 
     const { result, usage, cost } = await extractPOWithVision('base64data', 'system', 'user');
     expect(result.header.po_number).toBe('PO-123');
@@ -68,37 +58,37 @@ describe('extractPOWithVision', () => {
   });
 
   it('extracts raw JSON from response', async () => {
-    mockCreate.mockResolvedValue(makeResponse(`Here is the data: ${VALID_JSON}`));
+    mockFetch.mockResolvedValue(makeResponse(`Here is the data: ${VALID_JSON}`));
 
     const { result } = await extractPOWithVision('base64data', 'system', 'user');
     expect(result.header.po_number).toBe('PO-123');
   });
 
   it('throws when no text content in response', async () => {
-    mockCreate.mockResolvedValue({ content: [], usage: { input_tokens: 0, output_tokens: 0 } });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '' } }], usage: { prompt_tokens: 0, completion_tokens: 0 } }),
+    });
 
     await expect(extractPOWithVision('base64data', 'system', 'user')).rejects.toThrow('No text response');
   });
 
   it('throws when no JSON found in response', async () => {
-    mockCreate.mockResolvedValue(makeResponse('No JSON here at all'));
+    mockFetch.mockResolvedValue(makeResponse('No JSON here at all'));
 
     await expect(extractPOWithVision('base64data', 'system', 'user')).rejects.toThrow('Could not find JSON');
   });
 
-  it('calculates cost correctly', async () => {
-    mockCreate.mockResolvedValue(makeResponse(`\`\`\`json\n${VALID_JSON}\n\`\`\``));
+  it('calculates cost correctly with Mistral pricing', async () => {
+    mockFetch.mockResolvedValue(makeResponse(`\`\`\`json\n${VALID_JSON}\n\`\`\``));
 
     const { cost } = await extractPOWithVision('base64data', 'system', 'user');
-    // (1000 * 3 + 500 * 15) / 1_000_000 = (3000 + 7500) / 1_000_000 = 0.0105
-    expect(cost).toBeCloseTo(0.0105, 4);
+    // (1000 * 2 + 500 * 6) / 1_000_000 = (2000 + 3000) / 1_000_000 = 0.005
+    expect(cost).toBeCloseTo(0.005, 4);
   });
 
   it('tracks input and output token usage', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: `\`\`\`json\n${VALID_JSON}\n\`\`\`` }],
-      usage: { input_tokens: 5000, output_tokens: 2000 },
-    });
+    mockFetch.mockResolvedValue(makeResponse(`\`\`\`json\n${VALID_JSON}\n\`\`\``, 5000, 2000));
 
     const { usage } = await extractPOWithVision('base64data', 'system', 'user');
     expect(usage.inputTokens).toBe(5000);

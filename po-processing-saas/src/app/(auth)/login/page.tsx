@@ -43,7 +43,7 @@ export default function LoginPage() {
             <FileText className="h-7 w-7 text-white" />
           </div>
           <CardTitle className="text-[22px] font-semibold tracking-tight">Welcome back</CardTitle>
-          <CardDescription className="text-[13px] text-muted-foreground mt-1">Sign in to your PO Processing account</CardDescription>
+          <CardDescription className="text-[13px] text-muted-foreground mt-1">Sign in to your POFlow account</CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-4 pt-2">

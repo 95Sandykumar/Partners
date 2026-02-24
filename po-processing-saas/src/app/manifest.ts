@@ -2,8 +2,8 @@ import { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'PO Processing',
-    short_name: 'PO Processing',
+    name: 'POFlow',
+    short_name: 'POFlow',
     description: 'AI-Powered Purchase Order Management',
     start_url: '/dashboard',
     display: 'standalone',

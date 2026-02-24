@@ -155,7 +155,7 @@ export default function OnboardingPage() {
                 </div>
                 <div className="space-y-2">
                   <h1 className="text-2xl font-semibold tracking-tight">
-                    Welcome to PO Processing!
+                    Welcome to POFlow!
                   </h1>
                   {orgName && (
                     <p className="text-lg text-primary font-medium">

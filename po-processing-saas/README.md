@@ -1,6 +1,6 @@
-# PO Processing SaaS
+# POFlow
 
-**Automated Purchase Order Processing with AI-Powered Extraction**
+**AI-Powered Purchase Order Processing for Industrial Distributors**
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
@@ -11,9 +11,7 @@
 
 ## What is This?
 
-A **multi-tenant SaaS application** that automates purchase order processing for welding supply manufacturers. Upload PO PDFs, extract data with AI, match part numbers intelligently, and approve orders with confidence.
-
-Built for **CM Industries** to process POs from Powerweld, Linde, Matheson, and SKD Supply.
+A **multi-tenant SaaS platform** that automates purchase order processing for industrial distributors. Upload PO PDFs, extract data with AI, match part numbers intelligently, and approve orders with confidence.
 
 ---
 

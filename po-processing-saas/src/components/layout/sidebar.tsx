@@ -50,7 +50,7 @@ export function Sidebar() {
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary shadow-sm">
           <FileText className="h-[18px] w-[18px] text-white" />
         </div>
-        <span className="text-[15px] font-semibold tracking-tight text-foreground">PO Processor</span>
+        <span className="text-[15px] font-semibold tracking-tight text-foreground">POFlow</span>
       </div>
       <ScrollArea className="flex-1 px-3 py-3">
         <nav className="space-y-0.5">

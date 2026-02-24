@@ -38,7 +38,7 @@ export default async function LandingPage() {
                 <FileText className="h-4 w-4 text-white" />
               </div>
               <span className="text-[17px] font-semibold tracking-tight">
-                PO Processing
+                POFlow
               </span>
             </Link>
 
@@ -561,7 +561,7 @@ export default async function LandingPage() {
                   <FileText className="h-4 w-4 text-white" />
                 </div>
                 <span className="text-[17px] font-semibold tracking-tight">
-                  PO Processing
+                  POFlow
                 </span>
               </div>
               <p className="text-[15px] text-muted-foreground leading-relaxed max-w-xs">
@@ -640,11 +640,11 @@ export default async function LandingPage() {
 
           <div className="mt-12 pt-8 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-[13px] text-muted-foreground">
-              &copy; {new Date().getFullYear()} PO Processing. All rights
+              &copy; {new Date().getFullYear()} POFlow. All rights
               reserved.
             </p>
             <p className="text-[13px] text-muted-foreground">
-              Built for CM Industries
+              Powered by AI
             </p>
           </div>
         </div>

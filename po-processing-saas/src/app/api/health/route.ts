@@ -49,11 +49,11 @@ export async function GET() {
     checks.storage = { status: 'unhealthy', message: String(e), latency_ms: Date.now() - storageStart };
   }
 
-  // Claude API key configured
-  const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.includes('placeholder');
-  checks.claude_api = hasAnthropicKey
+  // Mistral API key configured
+  const hasMistralKey = !!process.env.MISTRAL_API_KEY;
+  checks.extraction_api = hasMistralKey
     ? { status: 'healthy' }
-    : { status: 'unhealthy', message: 'ANTHROPIC_API_KEY not configured' };
+    : { status: 'unhealthy', message: 'MISTRAL_API_KEY not configured' };
 
   // Stripe key configured
   const hasStripeKey = !!process.env.STRIPE_SECRET_KEY;

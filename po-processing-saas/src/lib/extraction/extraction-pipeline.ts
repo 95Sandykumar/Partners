@@ -1,7 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { detectVendor } from './vendor-detection';
 import { buildExtractionPrompt } from './prompt-builder';
-import { extractPOWithVision } from './claude-api';
+import { extractPOWithVision } from './mistral-api';
 import { validateExtraction } from './validation';
 import { calculateConfidence } from './confidence-scoring';
 import { matchAllLineItems } from '../matching/match-engine';

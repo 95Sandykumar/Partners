@@ -7,7 +7,7 @@ const envSchema = z.object({
 });
 
 const optionalEnvSchema = z.object({
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  MISTRAL_API_KEY: z.string().min(1).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   NEXT_PUBLIC_APP_URL: z.string().url().optional(),
@@ -43,8 +43,8 @@ export function validateEnv(): void {
 
   // Production-specific checks
   if (isProduction) {
-    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('placeholder')) {
-      throw new Error('ANTHROPIC_API_KEY must be set to a real key in production');
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error('MISTRAL_API_KEY must be set in production');
     }
     if (!process.env.STRIPE_SECRET_KEY) {
       console.warn('[env] STRIPE_SECRET_KEY not set - billing features will be unavailable');

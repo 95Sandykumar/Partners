@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Data Processing Agreement',
-  description: 'Data Processing Agreement (DPA) for PO Processing',
+  description: 'Data Processing Agreement (DPA) for POFlow',
 };
 
 export default function DPAPage() {
@@ -35,9 +35,9 @@ export default function DPAPage() {
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground">
               This Data Processing Agreement (&quot;DPA&quot;) forms part of the Terms of Service
-              between PO Processing (&quot;Processor&quot;) and the Customer (&quot;Controller&quot;).
+              between POFlow (&quot;Processor&quot;) and the Customer (&quot;Controller&quot;).
               It governs the processing of personal data by the Processor on behalf of the Controller
-              in connection with the provision of the PO Processing service. The Processor processes
+              in connection with the provision of the POFlow service. The Processor processes
               personal data only as necessary to provide the service and in accordance with the
               Controller&apos;s documented instructions.
             </p>

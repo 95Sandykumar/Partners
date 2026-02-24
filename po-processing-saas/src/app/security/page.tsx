@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Security Practices',
-  description: 'Security practices and data protection measures for PO Processing',
+  description: 'Security practices and data protection measures for POFlow',
 };
 
 export default function SecurityPage() {

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'Privacy Policy for PO Processing - AI-Powered Purchase Order Management',
+  description: 'Privacy Policy for POFlow - AI-Powered Purchase Order Management',
 };
 
 export default function PrivacyPolicy() {
@@ -34,7 +34,7 @@ export default function PrivacyPolicy() {
               1. Information We Collect
             </h2>
             <div className="text-[15px] leading-relaxed text-muted-foreground space-y-3">
-              <p>We collect the following types of information when you use PO Processing:</p>
+              <p>We collect the following types of information when you use POFlow:</p>
               <ul className="list-disc pl-6 space-y-2">
                 <li>
                   <strong className="text-foreground">Account information</strong> &mdash; your name,
@@ -239,7 +239,7 @@ export default function PrivacyPolicy() {
               9. Children&apos;s Privacy
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground">
-              PO Processing is a business-to-business service and is not designed for or
+              POFlow is a business-to-business service and is not designed for or
               directed at individuals under the age of 18. We do not knowingly collect personal
               information from children. If we become aware that a user is under 18, we will
               take steps to delete their account and associated data.
