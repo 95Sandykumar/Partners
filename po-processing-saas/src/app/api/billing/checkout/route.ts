@@ -60,24 +60,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Stripe price not configured for this tier' }, { status: 400 });
     }
 
-    // Create or retrieve Stripe customer
+    // Create or retrieve Stripe customer (with race condition protection)
     let customerId = org.stripe_customer_id;
 
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email!,
-        metadata: {
-          organization_id: org.id,
-          organization_name: org.name,
-        },
-      });
-
-      customerId = customer.id;
-
-      await supabase
+      // Re-check with fresh query to prevent race condition
+      const { data: freshOrg } = await supabase
         .from('organizations')
-        .update({ stripe_customer_id: customerId })
-        .eq('id', org.id);
+        .select('stripe_customer_id')
+        .eq('id', org.id)
+        .single();
+
+      if (freshOrg?.stripe_customer_id) {
+        customerId = freshOrg.stripe_customer_id;
+      } else {
+        const customer = await stripe.customers.create({
+          email: user.email!,
+          metadata: {
+            organization_id: org.id,
+            organization_name: org.name,
+          },
+        });
+
+        customerId = customer.id;
+
+        // Use update with a WHERE clause that ensures no other request set it first
+        const { error: updateError } = await supabase
+          .from('organizations')
+          .update({ stripe_customer_id: customerId })
+          .eq('id', org.id)
+          .is('stripe_customer_id', null);
+
+        if (updateError) {
+          // Another request already set the customer ID - fetch theirs
+          const { data: raceOrg } = await supabase
+            .from('organizations')
+            .select('stripe_customer_id')
+            .eq('id', org.id)
+            .single();
+
+          if (raceOrg?.stripe_customer_id) {
+            customerId = raceOrg.stripe_customer_id;
+            // Clean up the duplicate Stripe customer
+            await stripe.customers.del(customer.id);
+          }
+        }
+      }
     }
 
     // Create checkout session
