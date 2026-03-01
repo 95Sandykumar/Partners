@@ -61,6 +61,12 @@ export async function GET() {
     ? { status: 'healthy' }
     : { status: 'unhealthy', message: 'STRIPE_SECRET_KEY not configured' };
 
+  // Stripe webhook secret configured
+  const hasWebhookSecret = !!process.env.STRIPE_WEBHOOK_SECRET;
+  checks.stripe_webhook = hasWebhookSecret
+    ? { status: 'healthy' }
+    : { status: 'unhealthy', message: 'STRIPE_WEBHOOK_SECRET not configured' };
+
   // Determine overall health
   for (const check of Object.values(checks)) {
     if (check.status === 'unhealthy') {
