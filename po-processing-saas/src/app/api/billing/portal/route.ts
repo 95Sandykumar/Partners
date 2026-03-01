@@ -13,12 +13,16 @@ export async function POST() {
     // Get user's org
     const { data: userProfile } = await supabase
       .from('users')
-      .select('organization_id')
+      .select('organization_id, role')
       .eq('id', user.id)
       .single();
 
     if (!userProfile) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    if (userProfile.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can manage billing' }, { status: 403 });
     }
 
     const { data: org } = await supabase
