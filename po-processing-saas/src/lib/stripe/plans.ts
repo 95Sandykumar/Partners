@@ -44,18 +44,28 @@ export const BILLING_PLANS: Record<string, BillingPlan> = {
 
 /** Map Stripe Price IDs to tiers (populated from env vars at runtime) */
 export function getPriceIdToTierMap(): Record<string, string> {
-  return {
-    [process.env.STRIPE_STARTER_PRICE_ID || '']: 'starter',
-    [process.env.STRIPE_PROFESSIONAL_PRICE_ID || '']: 'professional',
-    [process.env.STRIPE_ENTERPRISE_PRICE_ID || '']: 'enterprise',
-  };
+  const map: Record<string, string> = {};
+  const starter = process.env.STRIPE_STARTER_PRICE_ID;
+  const professional = process.env.STRIPE_PROFESSIONAL_PRICE_ID;
+  const enterprise = process.env.STRIPE_ENTERPRISE_PRICE_ID;
+
+  if (starter) map[starter] = 'starter';
+  if (professional) map[professional] = 'professional';
+  if (enterprise) map[enterprise] = 'enterprise';
+
+  return map;
 }
 
 /** Map tiers to Stripe Price IDs */
 export function getTierToPriceIdMap(): Record<string, string> {
-  return {
-    starter: process.env.STRIPE_STARTER_PRICE_ID || '',
-    professional: process.env.STRIPE_PROFESSIONAL_PRICE_ID || '',
-    enterprise: process.env.STRIPE_ENTERPRISE_PRICE_ID || '',
-  };
+  const map: Record<string, string> = {};
+  const starter = process.env.STRIPE_STARTER_PRICE_ID;
+  const professional = process.env.STRIPE_PROFESSIONAL_PRICE_ID;
+  const enterprise = process.env.STRIPE_ENTERPRISE_PRICE_ID;
+
+  if (starter) map['starter'] = starter;
+  if (professional) map['professional'] = professional;
+  if (enterprise) map['enterprise'] = enterprise;
+
+  return map;
 }
