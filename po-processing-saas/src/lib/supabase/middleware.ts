@@ -30,7 +30,11 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Public routes that don't require authentication
-  const publicPaths = ['/login', '/signup', '/forgot-password', '/reset-password', '/terms', '/privacy', '/security', '/dpa', '/api'];
+  const publicPaths = [
+    '/login', '/signup', '/forgot-password', '/reset-password',
+    '/terms', '/privacy', '/security', '/dpa',
+    '/api/health', '/api/billing/webhook', '/api/auth/setup',
+  ];
   const isPublicPath = publicPaths.some((path) => request.nextUrl.pathname.startsWith(path)) || request.nextUrl.pathname === '/';
 
   // Redirect unauthenticated users to login
