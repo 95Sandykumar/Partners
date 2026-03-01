@@ -18,6 +18,17 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const validation = validateBody(POApprovalSchema, body);
     if (!validation.success) return validation.response;
@@ -30,6 +41,7 @@ export async function POST(
         .from('purchase_orders')
         .select('raw_extraction, vendor_id, organization_id')
         .eq('id', id)
+        .eq('organization_id', userProfile.organization_id)
         .single();
 
       if (po?.raw_extraction) {
@@ -70,10 +82,12 @@ export async function POST(
       for (const item of line_items) {
         const { id: itemId, ...updates } = item;
         if (itemId) {
+          // Only update line items belonging to this PO
           await supabase
             .from('po_line_items')
             .update(updates)
-            .eq('id', itemId);
+            .eq('id', itemId)
+            .eq('purchase_order_id', id);
         }
       }
     }
@@ -86,7 +100,8 @@ export async function POST(
         status,
         reviewed_by: user.id,
       })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('organization_id', userProfile.organization_id);
 
     // Update review queue
     await supabase
@@ -95,37 +110,30 @@ export async function POST(
         status: 'completed',
         review_notes: review_notes || null,
       })
-      .eq('purchase_order_id', id);
+      .eq('purchase_order_id', id)
+      .eq('organization_id', userProfile.organization_id);
 
     // Create new mappings (learning loop)
     if (new_mappings && Array.isArray(new_mappings) && new_mappings.length > 0) {
-      const { data: userProfile } = await supabase
-        .from('users')
-        .select('organization_id')
-        .eq('id', user.id)
-        .single();
-
-      if (userProfile) {
-        for (const mapping of new_mappings) {
-          await supabase
-            .from('vendor_mappings')
-            .upsert(
-              {
-                organization_id: userProfile.organization_id,
-                vendor_id: mapping.vendor_id,
-                vendor_part_number: mapping.vendor_part_number,
-                manufacturer_part_number: mapping.manufacturer_part_number || null,
-                internal_sku: mapping.internal_sku,
-                confidence: mapping.confidence || 100,
-                match_source: 'verified',
-                is_verified: true,
-                times_seen: 1,
-              },
-              {
-                onConflict: 'organization_id,vendor_id,vendor_part_number',
-              }
-            );
-        }
+      for (const mapping of new_mappings) {
+        await supabase
+          .from('vendor_mappings')
+          .upsert(
+            {
+              organization_id: userProfile.organization_id,
+              vendor_id: mapping.vendor_id,
+              vendor_part_number: mapping.vendor_part_number,
+              manufacturer_part_number: mapping.manufacturer_part_number || null,
+              internal_sku: mapping.internal_sku,
+              confidence: mapping.confidence || 100,
+              match_source: 'verified',
+              is_verified: true,
+              times_seen: 1,
+            },
+            {
+              onConflict: 'organization_id,vendor_id,vendor_part_number',
+            }
+          );
       }
     }
 
