@@ -1,3 +1,4 @@
+import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -20,7 +21,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://*.supabase.co",
               "font-src 'self'",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com https://api.stripe.com",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com https://api.stripe.com https://*.sentry.io https://*.ingest.sentry.io",
               "frame-src https://js.stripe.com https://hooks.stripe.com",
               "object-src 'none'",
               "base-uri 'self'",
@@ -32,4 +33,10 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  disableLogger: true,
+});
