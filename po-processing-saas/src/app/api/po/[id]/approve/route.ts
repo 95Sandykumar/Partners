@@ -92,26 +92,15 @@ export async function POST(
       }
     }
 
-    // Update PO status
+    // Atomic: update PO status + review queue in one transaction
     const status = action === 'reject' ? 'rejected' : 'approved';
-    await supabase
-      .from('purchase_orders')
-      .update({
-        status,
-        reviewed_by: user.id,
-      })
-      .eq('id', id)
-      .eq('organization_id', userProfile.organization_id);
-
-    // Update review queue
-    await supabase
-      .from('review_queue')
-      .update({
-        status: 'completed',
-        review_notes: review_notes || null,
-      })
-      .eq('purchase_order_id', id)
-      .eq('organization_id', userProfile.organization_id);
+    await supabase.rpc('approve_po', {
+      p_po_id: id,
+      p_org_id: userProfile.organization_id,
+      p_status: status,
+      p_reviewed_by: user.id,
+      p_review_notes: review_notes || null,
+    });
 
     // Create new mappings (learning loop)
     if (new_mappings && Array.isArray(new_mappings) && new_mappings.length > 0) {
