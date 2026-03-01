@@ -119,17 +119,36 @@ export async function POST(request: NextRequest) {
     // Convert to base64 for Claude
     const pdfBase64 = buffer.toString('base64');
 
-    // Run extraction pipeline
-    const result = await runExtractionPipeline(serviceClient, {
-      pdfBase64,
-      fileName: file.name,
-      senderEmail: senderEmail || undefined,
-      orgId,
-      userId: user.id,
-      pdfStoragePath: storagePath,
-    });
+    // Run extraction pipeline with failure handling
+    let result;
+    try {
+      result = await runExtractionPipeline(serviceClient, {
+        pdfBase64,
+        fileName: file.name,
+        senderEmail: senderEmail || undefined,
+        orgId,
+        userId: user.id,
+        pdfStoragePath: storagePath,
+      });
+    } catch (extractionError: unknown) {
+      // Clean up orphaned PDF
+      await serviceClient.storage.from('po-pdfs').remove([storagePath]);
 
-    // Increment monthly PO usage
+      console.error('Extraction failed:', extractionError);
+      const extractionMessage = extractionError instanceof Error
+        ? extractionError.message
+        : 'Extraction failed';
+      return NextResponse.json(
+        {
+          error: 'PO extraction failed',
+          detail: extractionMessage,
+          message: 'The PDF was uploaded but extraction failed. Please try again or contact support.',
+        },
+        { status: 422 }
+      );
+    }
+
+    // Increment monthly PO usage (only on success)
     await supabase
       .from('po_usage_tracking')
       .upsert(
