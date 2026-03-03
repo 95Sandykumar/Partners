@@ -34,6 +34,10 @@ function createChain(resolvedValue: unknown) {
   return inner;
 }
 
+function createUserProfileChain() {
+  return createChain({ data: { organization_id: 'org-1' }, error: null });
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────
 
 let GET: () => Promise<Response>;
@@ -69,6 +73,7 @@ describe('GET /api/dashboard/stats', () => {
     // The route uses Promise.all for 4 parallel queries, then one more for extraction_logs.
     // We need to track the table being queried to return appropriate data.
     (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
       if (table === 'purchase_orders') {
         // For POs, there are two calls:
         //  1. POs today (head: true, count: 'exact')
@@ -113,7 +118,8 @@ describe('GET /api/dashboard/stats', () => {
   });
 
   it('handles empty data gracefully', async () => {
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => {
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
       return createChain({ data: [], error: null, count: 0 });
     });
 
@@ -128,6 +134,7 @@ describe('GET /api/dashboard/stats', () => {
 
   it('calculates average confidence correctly', async () => {
     (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
       if (table === 'purchase_orders') {
         return createChain({
           data: [

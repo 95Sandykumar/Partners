@@ -110,7 +110,10 @@ describe('GET /api/products', () => {
       { id: '2', internal_sku: 'SKU-002', description: 'Widget B' },
     ];
     const chain = createChain({ data: mockProducts, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createChain({ data: { organization_id: 'org-1' }, error: null });
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/products');
     const res = await GET(req);
@@ -123,7 +126,10 @@ describe('GET /api/products', () => {
 
   it('returns empty array when data is null', async () => {
     const chain = createChain({ data: null, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createChain({ data: { organization_id: 'org-1' }, error: null });
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/products');
     const res = await GET(req);
@@ -135,7 +141,10 @@ describe('GET /api/products', () => {
 
   it('returns 500 when database query fails', async () => {
     const chain = createChain({ data: null, error: { message: 'DB error' } });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createChain({ data: { organization_id: 'org-1' }, error: null });
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/products');
     const res = await GET(req);

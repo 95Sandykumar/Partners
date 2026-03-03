@@ -59,16 +59,31 @@ beforeEach(async () => {
   });
 });
 
+function createUserProfileChain() {
+  const inner: Record<string, unknown> = {};
+  const methods = ['select', 'eq', 'order', 'limit', 'in', 'gte', 'lte', 'ilike', 'neq'];
+  for (const m of methods) {
+    inner[m] = vi.fn().mockReturnValue(inner);
+  }
+  inner['single'] = vi.fn().mockResolvedValue({ data: { organization_id: 'org-1' }, error: null });
+  inner['then'] = vi.fn().mockImplementation(
+    (resolve: (v: unknown) => void) => Promise.resolve({ data: { organization_id: 'org-1' }, error: null }).then(resolve)
+  );
+  return inner;
+}
+
 /**
  * Set up the from chain for the export route.
- * The route calls from('purchase_orders') first, then from('po_line_items').
+ * The route calls from('users') first for org check, then from('purchase_orders'), then from('po_line_items').
  */
 function setupExportChain(
   posResult: unknown,
   lineItemsResult: unknown = { data: [], error: null },
 ) {
   (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
-    if (table === 'purchase_orders') {
+    if (table === 'users') {
+      return createUserProfileChain();
+    } else if (table === 'purchase_orders') {
       return createChain(posResult);
     } else if (table === 'po_line_items') {
       return createChain(lineItemsResult);
@@ -200,7 +215,10 @@ describe('GET /api/po/export', () => {
 
   it('applies status filter', async () => {
     const posChain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => posChain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return posChain;
+    });
 
     const req = createRequest('http://localhost/api/po/export?status=approved');
     await GET(req);
@@ -210,7 +228,10 @@ describe('GET /api/po/export', () => {
 
   it('does not filter by status when status is "all"', async () => {
     const posChain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => posChain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return posChain;
+    });
 
     const req = createRequest('http://localhost/api/po/export?status=all');
     await GET(req);
@@ -220,7 +241,10 @@ describe('GET /api/po/export', () => {
 
   it('applies date range filters', async () => {
     const posChain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => posChain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return posChain;
+    });
 
     const req = createRequest('http://localhost/api/po/export?from=2025-01-01&to=2025-12-31');
     await GET(req);
@@ -231,7 +255,10 @@ describe('GET /api/po/export', () => {
 
   it('applies vendor_id filter', async () => {
     const posChain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => posChain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return posChain;
+    });
 
     const req = createRequest('http://localhost/api/po/export?vendor_id=v-123');
     await GET(req);

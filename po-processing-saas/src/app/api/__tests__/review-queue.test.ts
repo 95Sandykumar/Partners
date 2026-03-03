@@ -39,6 +39,10 @@ function createChain(resolvedValue: unknown) {
   return inner;
 }
 
+function createUserProfileChain() {
+  return createChain({ data: { organization_id: 'org-1' }, error: null });
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────
 
 let GET: (req: NextRequest) => Promise<Response>;
@@ -87,7 +91,10 @@ describe('GET /api/review-queue', () => {
       },
     ];
     const chain = createChain({ data: mockItems, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/review-queue');
     const res = await GET(req);
@@ -102,7 +109,10 @@ describe('GET /api/review-queue', () => {
 
   it('filters by custom status', async () => {
     const chain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/review-queue?status=reviewed');
     const res = await GET(req);
@@ -113,18 +123,28 @@ describe('GET /api/review-queue', () => {
 
   it('does not filter by status when status is "all"', async () => {
     const chain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/review-queue?status=all');
     const res = await GET(req);
 
     expect(res.status).toBe(200);
-    expect(chain.eq).not.toHaveBeenCalledWith('status', expect.anything());
+    // The chain.eq is called with 'organization_id' from the route, but not with 'status'
+    // We just check that 'status' was not passed as a filter value
+    const eqCalls = (chain.eq as ReturnType<typeof vi.fn>).mock.calls;
+    const statusCalls = eqCalls.filter((call: unknown[]) => call[0] === 'status');
+    expect(statusCalls).toHaveLength(0);
   });
 
   it('orders by priority desc then created_at asc', async () => {
     const chain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/review-queue');
     await GET(req);
@@ -135,7 +155,10 @@ describe('GET /api/review-queue', () => {
 
   it('returns empty array when data is null', async () => {
     const chain = createChain({ data: null, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/review-queue');
     const res = await GET(req);
@@ -147,7 +170,10 @@ describe('GET /api/review-queue', () => {
 
   it('returns 500 when database query fails', async () => {
     const chain = createChain({ data: null, error: { message: 'Query failed' } });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/review-queue');
     const res = await GET(req);

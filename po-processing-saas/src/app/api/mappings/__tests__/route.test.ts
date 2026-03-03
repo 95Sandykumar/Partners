@@ -53,6 +53,10 @@ function createChain(resolvedValue: unknown) {
   return inner;
 }
 
+function createUserProfileChain() {
+  return createChain({ data: { organization_id: 'org-1' }, error: null });
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────
 
 let GET: (req: NextRequest) => Promise<Response>;
@@ -95,7 +99,10 @@ describe('GET /api/mappings', () => {
       { id: 'm-2', vendor_part_number: 'VP-200', internal_sku: 'SKU-002' },
     ];
     const chain = createChain({ data: mockMappings, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/mappings');
     const res = await GET(req);
@@ -108,7 +115,10 @@ describe('GET /api/mappings', () => {
 
   it('returns empty array when data is null', async () => {
     const chain = createChain({ data: null, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/mappings');
     const res = await GET(req);
@@ -120,7 +130,10 @@ describe('GET /api/mappings', () => {
 
   it('applies vendor_id filter', async () => {
     const chain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/mappings?vendor_id=v-123');
     await GET(req);
@@ -130,7 +143,10 @@ describe('GET /api/mappings', () => {
 
   it('applies search filter with or clause', async () => {
     const chain = createChain({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/mappings?search=widget');
     await GET(req);
@@ -142,7 +158,10 @@ describe('GET /api/mappings', () => {
 
   it('returns 500 when database query fails', async () => {
     const chain = createChain({ data: null, error: { message: 'DB error' } });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const req = createRequest('http://localhost/api/mappings');
     const res = await GET(req);

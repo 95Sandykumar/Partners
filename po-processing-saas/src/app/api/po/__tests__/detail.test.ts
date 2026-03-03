@@ -66,9 +66,19 @@ beforeEach(async () => {
 
 // ── GET [id] Tests ───────────────────────────────────────────────────────
 
+function createUserProfileChain() {
+  const inner: Record<string, unknown> = {};
+  for (const m of ['select', 'eq', 'order']) {
+    inner[m] = vi.fn().mockReturnValue(inner);
+  }
+  inner['single'] = vi.fn().mockResolvedValue({ data: { organization_id: 'org-1' }, error: null });
+  return inner;
+}
+
 describe('GET /api/po/[id]', () => {
   function setupGetChain(resolved: unknown) {
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => {
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
       const inner: Record<string, unknown> = {};
       for (const m of ['select', 'eq', 'order']) {
         inner[m] = vi.fn().mockReturnValue(inner);
@@ -151,11 +161,15 @@ describe('PUT /api/po/[id]', () => {
   function setupUpdateChain() {
     const updateFn = vi.fn();
     const eqFn = vi.fn();
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => {
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
       const inner: Record<string, unknown> = {};
       for (const m of ['select', 'eq', 'order', 'single']) {
         inner[m] = vi.fn().mockReturnValue(inner);
       }
+      // For the ownership check query (from('purchase_orders').select('id').eq('id', ...).eq('organization_id', ...).single())
+      // it needs to resolve with a found PO
+      inner['single'] = vi.fn().mockResolvedValue({ data: { id: 'po-123' }, error: null });
       inner['update'] = updateFn.mockReturnValue(inner);
       inner['eq'] = eqFn.mockReturnValue(inner);
       return inner;

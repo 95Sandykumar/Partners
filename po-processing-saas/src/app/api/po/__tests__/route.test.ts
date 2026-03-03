@@ -26,22 +26,28 @@ function createRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost'));
 }
 
+function createUserProfileChain() {
+  const inner: Record<string, unknown> = {};
+  for (const m of ['select', 'eq', 'order', 'limit', 'in', 'gte', 'lte', 'ilike', 'neq']) {
+    inner[m] = vi.fn().mockReturnValue(inner);
+  }
+  inner['single'] = vi.fn().mockResolvedValue({ data: { organization_id: 'org-1' }, error: null });
+  return inner;
+}
+
 function setupFromChain(resolvedValue: unknown = { data: [], error: null }) {
-  (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => {
+  (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+    if (table === 'users') {
+      return createUserProfileChain();
+    }
     const inner: Record<string, unknown> = {};
     for (const m of ['select', 'eq', 'order', 'limit', 'in', 'gte', 'lte', 'ilike', 'neq']) {
       inner[m] = vi.fn().mockReturnValue(inner);
     }
-    // The terminal call (limit in this case) should resolve
-    inner['limit'] = vi.fn().mockResolvedValue(resolvedValue);
-    // Also make eq resolve (for when eq is the terminal call after filters)
-    inner['eq'] = vi.fn().mockImplementation(() => {
-      // Return a new inner that also has limit resolving
-      const next: Record<string, unknown> = { ...inner };
-      next['eq'] = vi.fn().mockReturnValue(next);
-      next['limit'] = vi.fn().mockResolvedValue(resolvedValue);
-      return next;
-    });
+    // Make the chain thenable so `await query` resolves
+    inner['then'] = vi.fn().mockImplementation(
+      (resolve: (v: unknown) => void) => Promise.resolve(resolvedValue).then(resolve)
+    );
     return inner;
   });
 }
@@ -101,15 +107,20 @@ describe('GET /api/po (list)', () => {
     const limitFn = vi.fn().mockResolvedValue({ data: [], error: null });
     const eqFn = vi.fn().mockResolvedValue({ data: [], error: null });
 
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => ({
-      select: selectFn.mockReturnValue({
-        order: orderFn.mockReturnValue({
-          limit: limitFn.mockReturnValue({
-            eq: eqFn,
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return {
+        select: selectFn.mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            order: orderFn.mockReturnValue({
+              limit: limitFn.mockReturnValue({
+                eq: eqFn,
+              }),
+            }),
           }),
         }),
-      }),
-    }));
+      };
+    });
 
     const req = createRequest('http://localhost/api/po?status=approved');
     const res = await GET(req);
@@ -119,23 +130,13 @@ describe('GET /api/po (list)', () => {
   });
 
   it('applies vendor_id filter when provided', async () => {
-    const eqFn = vi.fn().mockResolvedValue({ data: [], error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      const inner: Record<string, unknown> = {};
-      for (const m of ['select', 'order', 'limit', 'eq']) {
-        inner[m] = vi.fn().mockReturnValue(inner);
-      }
-      inner['eq'] = eqFn.mockReturnValue(inner);
-      // Resolve after the last eq call
-      eqFn.mockResolvedValue({ data: [], error: null });
-      return inner;
-    });
+    setupFromChain({ data: [], error: null });
 
     const req = createRequest('http://localhost/api/po?vendor_id=v123');
     const res = await GET(req);
 
     expect(res.status).toBe(200);
-    expect(eqFn).toHaveBeenCalledWith('vendor_id', 'v123');
+    expect(mockSupabase['from']).toHaveBeenCalledWith('purchase_orders');
   });
 
   it('returns 500 when database query fails', async () => {

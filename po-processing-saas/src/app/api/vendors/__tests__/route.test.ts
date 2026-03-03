@@ -50,6 +50,10 @@ function createChain(resolvedValue: unknown) {
   return inner;
 }
 
+function createUserProfileChain() {
+  return createChain({ data: { organization_id: 'org-1' }, error: null });
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────
 
 let GET: () => Promise<Response>;
@@ -89,7 +93,10 @@ describe('GET /api/vendors', () => {
       { id: 'v-2', vendor_name: 'Beta Inc', templates: [{ id: 't-1', version: '1.0', is_active: true }] },
     ];
     const chain = createChain({ data: mockVendors, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const res = await GET();
 
@@ -101,7 +108,10 @@ describe('GET /api/vendors', () => {
 
   it('returns empty array when data is null', async () => {
     const chain = createChain({ data: null, error: null });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const res = await GET();
 
@@ -112,7 +122,10 @@ describe('GET /api/vendors', () => {
 
   it('returns 500 when database query fails', async () => {
     const chain = createChain({ data: null, error: { message: 'DB error' } });
-    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    (mockSupabase['from'] as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
+      if (table === 'users') return createUserProfileChain();
+      return chain;
+    });
 
     const res = await GET();
 
