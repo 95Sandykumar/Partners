@@ -17,6 +17,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     const { searchParams } = new URL(request.url);
     const search = sanitizeSearchParam(searchParams.get('search'));
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
@@ -24,6 +35,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('products')
       .select('*')
+      .eq('organization_id', userProfile.organization_id)
       .eq('is_active', true)
       .order('internal_sku')
       .limit(limit);

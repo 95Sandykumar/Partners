@@ -13,11 +13,23 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     // Verify vendor belongs to user's org
     const { data: vendor, error: vendorError } = await supabase
       .from('vendors')
       .select('id, vendor_id, vendor_name')
       .eq('id', id)
+      .eq('organization_id', userProfile.organization_id)
       .single();
 
     if (vendorError || !vendor) {
@@ -53,11 +65,23 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     // Verify vendor belongs to user's org
     const { data: vendor } = await supabase
       .from('vendors')
       .select('id')
       .eq('id', id)
+      .eq('organization_id', userProfile.organization_id)
       .single();
 
     if (!vendor) {
@@ -109,6 +133,29 @@ export async function PUT(
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    // Verify vendor belongs to user's org
+    const { data: vendorCheck } = await supabase
+      .from('vendors')
+      .select('id')
+      .eq('id', id)
+      .eq('organization_id', userProfile.organization_id)
+      .single();
+
+    if (!vendorCheck) {
+      return NextResponse.json({ error: 'Vendor not found' }, { status: 404 });
     }
 
     const body = await request.json();

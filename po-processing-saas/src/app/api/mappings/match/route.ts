@@ -12,14 +12,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const validation = validateBody(MatchRequestSchema, body);
     if (!validation.success) return validation.response;
     const { vendor_part_number, manufacturer_part_number } = validation.data;
 
+    // Only fetch mappings belonging to user's organization
     const { data: mappings } = await supabase
       .from('vendor_mappings')
-      .select('*');
+      .select('*')
+      .eq('organization_id', userProfile.organization_id);
 
     const match = matchPartNumber(
       vendor_part_number,

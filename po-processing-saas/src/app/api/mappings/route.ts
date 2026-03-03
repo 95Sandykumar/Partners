@@ -16,6 +16,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     const { searchParams } = new URL(request.url);
     const vendorId = searchParams.get('vendor_id');
     const search = sanitizeSearchParam(searchParams.get('search'));
@@ -23,6 +34,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('vendor_mappings')
       .select('*, vendor:vendors(vendor_name, vendor_id)')
+      .eq('organization_id', userProfile.organization_id)
       .order('updated_at', { ascending: false });
 
     if (vendorId) {

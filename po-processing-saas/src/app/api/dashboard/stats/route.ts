@@ -9,25 +9,41 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    const orgId = userProfile.organization_id;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Parallel queries for dashboard stats
+    // Parallel queries for dashboard stats (all scoped to user's org)
     const [posToday, pendingReviews, allPOs, vendors] = await Promise.all([
       supabase
         .from('purchase_orders')
         .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
         .gte('created_at', today.toISOString()),
       supabase
         .from('review_queue')
         .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
         .eq('status', 'pending'),
       supabase
         .from('purchase_orders')
-        .select('extraction_confidence, id'),
+        .select('extraction_confidence, id')
+        .eq('organization_id', orgId),
       supabase
         .from('vendors')
-        .select('id', { count: 'exact', head: true }),
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId),
     ]);
 
     // Calculate averages
@@ -38,10 +54,11 @@ export async function GET() {
           poData.length
         : 0;
 
-    // Match rate from extraction logs
+    // Match rate from extraction logs (scoped to org)
     const { data: logs } = await supabase
       .from('extraction_logs')
       .select('line_count, matched_count')
+      .eq('organization_id', orgId)
       .gt('line_count', 0);
 
     const totalLines = (logs || []).reduce((sum, l) => sum + l.line_count, 0);

@@ -9,6 +9,18 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    const orgId = userProfile.organization_id;
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const since = thirtyDaysAgo.toISOString();
@@ -17,16 +29,19 @@ export async function GET() {
       supabase
         .from('purchase_orders')
         .select('created_at, extraction_confidence')
+        .eq('organization_id', orgId)
         .gte('created_at', since)
         .order('created_at'),
       supabase
         .from('extraction_logs')
         .select('created_at, matched_count, line_count')
+        .eq('organization_id', orgId)
         .gte('created_at', since)
         .order('created_at'),
       supabase
         .from('purchase_orders')
         .select('vendor_id, vendors(vendor_name)')
+        .eq('organization_id', orgId)
         .gte('created_at', since),
     ]);
 

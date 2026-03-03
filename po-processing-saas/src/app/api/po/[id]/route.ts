@@ -13,6 +13,17 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     const { data: po, error } = await supabase
       .from('purchase_orders')
       .select(`
@@ -22,6 +33,7 @@ export async function GET(
         review_queue_item:review_queue(*)
       `)
       .eq('id', id)
+      .eq('organization_id', userProfile.organization_id)
       .single();
 
     if (error || !po) {
@@ -56,24 +68,48 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
+    // Verify PO belongs to user's org before allowing updates
+    const { data: existingPo } = await supabase
+      .from('purchase_orders')
+      .select('id')
+      .eq('id', id)
+      .eq('organization_id', userProfile.organization_id)
+      .single();
+
+    if (!existingPo) {
+      return NextResponse.json({ error: 'PO not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const { validateBody } = await import('@/lib/validation/validate');
     const { POUpdateSchema } = await import('@/lib/validation/schemas');
     const validation = validateBody(POUpdateSchema, body);
     if (!validation.success) return validation.response;
 
-    // Update line items if provided
+    // Update line items if provided (scoped to this PO)
     if (body.line_items && Array.isArray(body.line_items)) {
       for (const item of body.line_items) {
         const { id: itemId, ...updates } = item;
         await supabase
           .from('po_line_items')
           .update(updates)
-          .eq('id', itemId);
+          .eq('id', itemId)
+          .eq('purchase_order_id', id);
       }
     }
 
-    // Update PO fields if provided
+    // Update PO fields if provided (scoped to user's org)
     const poUpdates: Record<string, unknown> = {};
     if (body.status) poUpdates.status = body.status;
     if (body.total !== undefined) poUpdates.total = body.total;
@@ -82,7 +118,8 @@ export async function PUT(
       await supabase
         .from('purchase_orders')
         .update(poUpdates)
-        .eq('id', id);
+        .eq('id', id)
+        .eq('organization_id', userProfile.organization_id);
     }
 
     return NextResponse.json({ success: true });

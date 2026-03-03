@@ -9,9 +9,21 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user's org for ownership check
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
+
     const { data, error } = await supabase
       .from('vendors')
       .select('*, templates:vendor_templates(id, version, is_active)')
+      .eq('organization_id', userProfile.organization_id)
       .order('vendor_name');
 
     if (error) {
