@@ -307,8 +307,10 @@ async function resetOrgData(
 // ============================================================
 export async function POST(request: NextRequest) {
   try {
-    // Production guard: prevent accidental seeding in production
-    if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_SEED) {
+    // Production guard: seed must NEVER run in production.
+    // There is no env var override for this check. If you need to seed
+    // production data, use a migration or a one-off script instead.
+    if (process.env.NODE_ENV === 'production') {
       return NextResponse.json(
         { error: 'Seed endpoint is disabled in production' },
         { status: 403 }
