@@ -1,26 +1,36 @@
 import type { ExtractionResult } from '@/types/extraction';
 import type { VisionProvider, VisionProviderResult } from './vision-provider';
 
-const TIMEOUT_MS = 60_000;
+const TIMEOUT_MS = 90_000;
 const RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504];
-const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
-// Mistral OCR 3 pricing: $0.50/M input, $1.50/M output
-const INPUT_COST_PER_MILLION = 0.5;
-const OUTPUT_COST_PER_MILLION = 1.5;
+// DeepSeek API pricing: $0.27/M input, $1.10/M output (vision)
+const INPUT_COST_PER_MILLION = 0.27;
+const OUTPUT_COST_PER_MILLION = 1.10;
 
-export const mistralProvider: VisionProvider = {
-  name: 'mistral',
+function getApiUrl(): string {
+  // Support self-hosted endpoint or DeepSeek cloud API
+  return process.env.DEEPSEEK_ENDPOINT || 'https://api.deepseek.com/v1/chat/completions';
+}
+
+function getApiKey(): string {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) {
+    throw new Error('DEEPSEEK_API_KEY is not configured');
+  }
+  return key;
+}
+
+export const deepseekProvider: VisionProvider = {
+  name: 'deepseek',
 
   async extractPO(
     pdfBase64: string,
     systemPrompt: string,
     userPrompt: string
   ): Promise<VisionProviderResult> {
-    const apiKey = process.env.MISTRAL_API_KEY;
-    if (!apiKey) {
-      throw new Error('MISTRAL_API_KEY is not configured');
-    }
+    const apiKey = getApiKey();
+    const apiUrl = getApiUrl();
 
     let lastError: Error | null = null;
 
@@ -30,14 +40,14 @@ export const mistralProvider: VisionProvider = {
         const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
-          const response = await fetch(MISTRAL_API_URL, {
+          const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`,
             },
             body: JSON.stringify({
-              model: 'mistral-ocr-2512',
+              model: 'deepseek-ocr',
               messages: [
                 {
                   role: 'system',
@@ -70,7 +80,7 @@ export const mistralProvider: VisionProvider = {
           if (!response.ok) {
             const errorBody = await response.text();
             const error = Object.assign(
-              new Error(`Mistral API error ${response.status}: ${errorBody}`),
+              new Error(`DeepSeek API error ${response.status}: ${errorBody}`),
               { status: response.status }
             );
 
@@ -86,7 +96,7 @@ export const mistralProvider: VisionProvider = {
 
           const textContent = data.choices?.[0]?.message?.content;
           if (!textContent) {
-            throw new Error('No text response from Mistral');
+            throw new Error('No text response from DeepSeek');
           }
 
           const jsonStr = extractJson(textContent);
@@ -94,14 +104,18 @@ export const mistralProvider: VisionProvider = {
 
           const inputTokens = data.usage?.prompt_tokens ?? 0;
           const outputTokens = data.usage?.completion_tokens ?? 0;
-          const cost =
-            (inputTokens * INPUT_COST_PER_MILLION + outputTokens * OUTPUT_COST_PER_MILLION) / 1_000_000;
+
+          // Self-hosted endpoint = zero cost
+          const isSelfHosted = !!process.env.DEEPSEEK_ENDPOINT;
+          const cost = isSelfHosted
+            ? 0
+            : (inputTokens * INPUT_COST_PER_MILLION + outputTokens * OUTPUT_COST_PER_MILLION) / 1_000_000;
 
           return {
             result,
             usage: { inputTokens, outputTokens },
             cost,
-            provider: 'mistral',
+            provider: 'deepseek',
           };
         } finally {
           clearTimeout(timeout);
@@ -126,30 +140,23 @@ export const mistralProvider: VisionProvider = {
       }
     }
 
-    throw lastError || new Error('Mistral extraction failed after retries');
+    throw lastError || new Error('DeepSeek extraction failed after retries');
   },
 };
 
-// Keep backward-compatible export for existing code
-export async function extractPOWithVision(
-  pdfBase64: string,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<VisionProviderResult> {
-  return mistralProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
-}
-
 function extractJson(text: string): string {
+  // Try markdown code block first
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (codeBlockMatch) {
     return codeBlockMatch[1];
   }
 
+  // Try to find raw JSON
   const startIdx = text.indexOf('{');
   const endIdx = text.lastIndexOf('}');
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
     return text.substring(startIdx, endIdx + 1);
   }
 
-  throw new Error('Could not find JSON in Mistral response');
+  throw new Error('Could not find JSON in DeepSeek response');
 }

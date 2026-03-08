@@ -1,11 +1,16 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { detectVendor } from './vendor-detection';
 import { buildExtractionPrompt } from './prompt-builder';
-import { extractPOWithVision } from './mistral-api';
 import { validateExtraction } from './validation';
 import { calculateConfidence } from './confidence-scoring';
 import { matchAllLineItems } from '../matching/match-engine';
+import { getProviderMode } from './vision-provider';
+import { deepseekProvider } from './deepseek-provider';
+import { mistralProvider } from './mistral-api';
+import type { VisionProviderResult } from './vision-provider';
 import type { PipelineResult } from '@/types/extraction';
+
+const HYBRID_CONFIDENCE_THRESHOLD = 75;
 
 interface PipelineInput {
   pdfBase64: string;
@@ -14,6 +19,64 @@ interface PipelineInput {
   orgId: string;
   userId: string;
   pdfStoragePath: string;
+}
+
+export async function extractWithProvider(
+  pdfBase64: string,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<VisionProviderResult> {
+  const mode = getProviderMode();
+
+  if (mode === 'mistral') {
+    return mistralProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
+  }
+
+  if (mode === 'deepseek') {
+    return deepseekProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
+  }
+
+  // Hybrid mode: DeepSeek first, Mistral fallback if low confidence
+  try {
+    const primary = await deepseekProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
+    const primaryConfidence = primary.result.extraction_metadata.overall_confidence;
+
+    if (primaryConfidence >= HYBRID_CONFIDENCE_THRESHOLD) {
+      return primary;
+    }
+
+    // Low confidence from DeepSeek — try Mistral as fallback
+    console.info(
+      `[hybrid] DeepSeek confidence ${primaryConfidence}% < ${HYBRID_CONFIDENCE_THRESHOLD}% threshold, falling back to Mistral`
+    );
+
+    try {
+      const fallback = await mistralProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
+      const fallbackConfidence = fallback.result.extraction_metadata.overall_confidence;
+
+      // Use whichever had higher confidence
+      if (fallbackConfidence > primaryConfidence) {
+        return {
+          ...fallback,
+          cost: primary.cost + fallback.cost,
+        };
+      }
+
+      // DeepSeek was still better despite low confidence
+      return {
+        ...primary,
+        cost: primary.cost + fallback.cost,
+      };
+    } catch {
+      // Mistral fallback failed — return DeepSeek result anyway
+      console.warn('[hybrid] Mistral fallback failed, using DeepSeek result');
+      return primary;
+    }
+  } catch (deepseekError) {
+    // DeepSeek completely failed — try Mistral as sole provider
+    console.warn('[hybrid] DeepSeek failed, trying Mistral as sole provider');
+    return mistralProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
+  }
 }
 
 export async function runExtractionPipeline(
@@ -30,7 +93,7 @@ export async function runExtractionPipeline(
 
   // 2. Detect vendor
   const vendorDetection = detectVendor(
-    '', // We don't have raw text from PDF, Claude will handle that
+    '',
     input.senderEmail,
     vendors || []
   );
@@ -46,7 +109,6 @@ export async function runExtractionPipeline(
       .eq('is_active', true)
       .single();
     vendorTemplate = data;
-    // Get the vendor_id slug for prompt building
     if (vendorDetection.vendor_id) {
       const vendor = vendors?.find((v) => v.id === vendorDetection.vendor_id);
       vendorSlug = vendor?.vendor_id;
@@ -59,17 +121,14 @@ export async function runExtractionPipeline(
     vendorSlug
   );
 
-  // 5. Call Claude Vision API
-  const { result: extraction, usage, cost: extractionCost } = await extractPOWithVision(
-    input.pdfBase64,
-    systemPrompt,
-    userPrompt
-  );
+  // 5. Extract using configured provider(s)
+  const { result: extraction, usage, cost: extractionCost, provider: usedProvider } =
+    await extractWithProvider(input.pdfBase64, systemPrompt, userPrompt);
 
   // Cost ceiling warning
   if (extractionCost > 0.50) {
     console.warn(
-      `[cost-warning] Extraction cost $${extractionCost.toFixed(4)} exceeds $0.50 ceiling for PO "${extraction.header.po_number}" (org: ${input.orgId})`
+      `[cost-warning] Extraction cost $${extractionCost.toFixed(4)} exceeds $0.50 ceiling for PO "${extraction.header.po_number}" (org: ${input.orgId}, provider: ${usedProvider})`
     );
   }
 
@@ -154,7 +213,6 @@ export async function runExtractionPipeline(
       .update({ status: 'approved' })
       .eq('id', po.id);
   } else {
-    // Add to review queue
     const reasons: string[] = [];
     if (overallConfidence < 85) reasons.push(`Low confidence: ${overallConfidence}%`);
     if (errorIssues.length > 0) reasons.push(`${errorIssues.length} validation error(s)`);
@@ -173,7 +231,7 @@ export async function runExtractionPipeline(
     });
   }
 
-  // 12. Log extraction
+  // 12. Log extraction (includes provider info)
   const processingTime = Date.now() - startTime;
 
   await supabase.from('extraction_logs').insert({
