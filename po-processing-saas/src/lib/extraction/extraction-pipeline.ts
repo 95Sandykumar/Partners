@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import * as Sentry from '@sentry/nextjs';
 import { detectVendor } from './vendor-detection';
 import { buildExtractionPrompt } from './prompt-builder';
 import { validateExtraction } from './validation';
@@ -7,9 +8,11 @@ import { matchAllLineItems } from '../matching/match-engine';
 import { getProviderMode } from './vision-provider';
 import { deepseekProvider } from './deepseek-provider';
 import { mistralProvider } from './mistral-api';
+import { createModuleLogger, errorContext } from '@/lib/logger';
 import type { VisionProviderResult } from './vision-provider';
 import type { PipelineResult } from '@/types/extraction';
 
+const log = createModuleLogger('extraction-pipeline');
 const HYBRID_CONFIDENCE_THRESHOLD = 75;
 
 interface PipelineInput {
@@ -45,14 +48,20 @@ export async function extractWithProvider(
       return primary;
     }
 
-    // Low confidence from DeepSeek — try Mistral as fallback
-    console.info(
-      `[hybrid] DeepSeek confidence ${primaryConfidence}% < ${HYBRID_CONFIDENCE_THRESHOLD}% threshold, falling back to Mistral`
+    // Low confidence from DeepSeek -- try Mistral as fallback
+    log.info(
+      { provider: 'deepseek', confidence: primaryConfidence, threshold: HYBRID_CONFIDENCE_THRESHOLD },
+      'primary provider below confidence threshold, falling back to Mistral'
     );
 
     try {
       const fallback = await mistralProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
       const fallbackConfidence = fallback.result.extraction_metadata.overall_confidence;
+
+      log.info(
+        { deepseekConfidence: primaryConfidence, mistralConfidence: fallbackConfidence },
+        'hybrid fallback complete, using higher confidence result'
+      );
 
       // Use whichever had higher confidence
       if (fallbackConfidence > primaryConfidence) {
@@ -67,14 +76,14 @@ export async function extractWithProvider(
         ...primary,
         cost: primary.cost + fallback.cost,
       };
-    } catch {
-      // Mistral fallback failed — return DeepSeek result anyway
-      console.warn('[hybrid] Mistral fallback failed, using DeepSeek result');
+    } catch (mistralError) {
+      // Mistral fallback failed -- return DeepSeek result anyway
+      log.warn({ ...errorContext(mistralError) }, 'Mistral fallback failed, using DeepSeek result');
       return primary;
     }
   } catch (deepseekError) {
-    // DeepSeek completely failed — try Mistral as sole provider
-    console.warn('[hybrid] DeepSeek failed, trying Mistral as sole provider');
+    // DeepSeek completely failed -- try Mistral as sole provider
+    log.warn({ ...errorContext(deepseekError) }, 'DeepSeek failed, trying Mistral as sole provider');
     return mistralProvider.extractPO(pdfBase64, systemPrompt, userPrompt);
   }
 }
@@ -84,177 +93,280 @@ export async function runExtractionPipeline(
   input: PipelineInput
 ): Promise<PipelineResult> {
   const startTime = Date.now();
+  const pipelineContext = {
+    orgId: input.orgId,
+    userId: input.userId,
+    fileName: input.fileName,
+  };
 
-  // 1. Get vendors for this organization
-  const { data: vendors } = await supabase
-    .from('vendors')
-    .select('*, templates:vendor_templates(*)')
-    .eq('organization_id', input.orgId);
+  log.info(pipelineContext, 'extraction pipeline started');
 
-  // 2. Detect vendor
-  const vendorDetection = detectVendor(
-    '',
-    input.senderEmail,
-    vendors || []
-  );
+  try {
+    // 1. Get vendors for this organization
+    const { data: vendors, error: vendorError } = await supabase
+      .from('vendors')
+      .select('*, templates:vendor_templates(*)')
+      .eq('organization_id', input.orgId);
 
-  // 3. Load vendor template if detected
-  let vendorTemplate = null;
-  let vendorSlug: string | undefined;
-  if (vendorDetection.template_id) {
-    const { data } = await supabase
-      .from('vendor_templates')
-      .select('*')
-      .eq('id', vendorDetection.template_id)
-      .eq('is_active', true)
-      .single();
-    vendorTemplate = data;
-    if (vendorDetection.vendor_id) {
-      const vendor = vendors?.find((v) => v.id === vendorDetection.vendor_id);
-      vendorSlug = vendor?.vendor_id;
+    if (vendorError) {
+      log.error({ ...pipelineContext, ...errorContext(vendorError) }, 'failed to fetch vendors');
     }
-  }
 
-  // 4. Build extraction prompt
-  const { systemPrompt, userPrompt } = buildExtractionPrompt(
-    vendorTemplate,
-    vendorSlug
-  );
-
-  // 5. Extract using configured provider(s)
-  const { result: extraction, usage, cost: extractionCost, provider: usedProvider } =
-    await extractWithProvider(input.pdfBase64, systemPrompt, userPrompt);
-
-  // Cost ceiling warning
-  if (extractionCost > 0.50) {
-    console.warn(
-      `[cost-warning] Extraction cost $${extractionCost.toFixed(4)} exceeds $0.50 ceiling for PO "${extraction.header.po_number}" (org: ${input.orgId}, provider: ${usedProvider})`
+    // 2. Detect vendor
+    const vendorDetection = detectVendor(
+      '',
+      input.senderEmail,
+      vendors || []
     );
-  }
 
-  // 6. Validate extraction
-  const templateData = vendorTemplate?.template_data as Record<string, unknown> | undefined;
-  const vendorPatterns = templateData?.part_number_patterns as string[] | undefined;
-  const validationIssues = validateExtraction(extraction, vendorPatterns);
+    log.info(
+      { ...pipelineContext, vendorId: vendorDetection.vendor_id, vendorName: vendorDetection.vendor_name, templateId: vendorDetection.template_id },
+      'vendor detection complete'
+    );
 
-  // 7. Calculate confidence
-  const confidenceAdjustments = templateData?.confidence_adjustments as Record<string, number> | undefined;
-  const overallConfidence = calculateConfidence(
-    extraction,
-    validationIssues,
-    confidenceAdjustments
-  );
+    // 3. Load vendor template if detected
+    let vendorTemplate = null;
+    let vendorSlug: string | undefined;
+    if (vendorDetection.template_id) {
+      const { data } = await supabase
+        .from('vendor_templates')
+        .select('*')
+        .eq('id', vendorDetection.template_id)
+        .eq('is_active', true)
+        .single();
+      vendorTemplate = data;
+      if (vendorDetection.vendor_id) {
+        const vendor = vendors?.find((v) => v.id === vendorDetection.vendor_id);
+        vendorSlug = vendor?.vendor_id;
+      }
+    }
 
-  // 8. Match parts
-  const { data: mappings } = await supabase
-    .from('vendor_mappings')
-    .select('*')
-    .eq('organization_id', input.orgId);
+    // 4. Build extraction prompt
+    const { systemPrompt, userPrompt } = buildExtractionPrompt(
+      vendorTemplate,
+      vendorSlug
+    );
 
-  const matches = matchAllLineItems(extraction.line_items, mappings || []);
+    // 5. Extract using configured provider(s)
+    log.info({ ...pipelineContext, providerMode: getProviderMode() }, 'starting AI extraction');
 
-  // 9. Save to database
-  const { data: po, error: poError } = await supabase
-    .from('purchase_orders')
-    .insert({
-      organization_id: input.orgId,
-      vendor_id: vendorDetection.vendor_id,
-      po_number: extraction.header.po_number || `UNKNOWN-${Date.now()}`,
-      po_date: extraction.header.po_date || null,
-      total: extraction.totals.total || null,
-      status: 'pending_review',
-      extraction_confidence: overallConfidence,
-      pdf_storage_path: input.pdfStoragePath,
-      raw_extraction: extraction as unknown as Record<string, unknown>,
-      created_by: input.userId,
-    })
-    .select()
-    .single();
+    const { result: extraction, usage, cost: extractionCost, provider: usedProvider } =
+      await extractWithProvider(input.pdfBase64, systemPrompt, userPrompt);
 
-  if (poError || !po) {
-    throw new Error(`Failed to save PO: ${poError?.message}`);
-  }
+    log.info(
+      {
+        ...pipelineContext,
+        provider: usedProvider,
+        cost: extractionCost,
+        lineItems: extraction.line_items.length,
+        poNumber: extraction.header.po_number,
+        inputTokens: usage?.input_tokens,
+        outputTokens: usage?.output_tokens,
+      },
+      'AI extraction complete'
+    );
 
-  // 10. Save line items
-  const lineItemRows = extraction.line_items.map((item) => {
-    const match = matches[item.line_number];
-    return {
-      purchase_order_id: po.id,
-      line_number: item.line_number,
-      vendor_part_number: item.vendor_part_number,
-      manufacturer_part_number: item.manufacturer_part_number,
-      description: item.description,
-      quantity: item.quantity,
-      unit_of_measure: item.unit_of_measure || 'EA',
-      unit_price: item.unit_price,
-      extended_price: item.extended_price,
-      matched_internal_sku: match?.internal_sku || null,
-      match_confidence: match?.confidence || null,
-      match_method: match?.match_method || null,
-      is_matched: !!match,
-      extraction_confidence: item.confidence,
-      extraction_notes: item.extraction_notes,
-    };
-  });
-
-  if (lineItemRows.length > 0) {
-    await supabase.from('po_line_items').insert(lineItemRows);
-  }
-
-  // 11. Determine routing
-  const matchedCount = Object.values(matches).filter((m) => m !== null).length;
-  const errorIssues = validationIssues.filter((i) => i.severity === 'error');
-  const autoApproved =
-    overallConfidence >= 85 && errorIssues.length === 0;
-
-  if (autoApproved) {
-    await supabase
-      .from('purchase_orders')
-      .update({ status: 'approved' })
-      .eq('id', po.id);
-  } else {
-    const reasons: string[] = [];
-    if (overallConfidence < 85) reasons.push(`Low confidence: ${overallConfidence}%`);
-    if (errorIssues.length > 0) reasons.push(`${errorIssues.length} validation error(s)`);
-    if (matchedCount < extraction.line_items.length) {
-      reasons.push(
-        `${extraction.line_items.length - matchedCount} unmatched part(s)`
+    // Cost ceiling warning
+    if (extractionCost > 0.50) {
+      log.warn(
+        {
+          ...pipelineContext,
+          cost: extractionCost,
+          poNumber: extraction.header.po_number,
+          provider: usedProvider,
+        },
+        'extraction cost exceeds $0.50 ceiling'
       );
     }
 
-    await supabase.from('review_queue').insert({
-      purchase_order_id: po.id,
-      organization_id: input.orgId,
-      priority: overallConfidence < 60 ? 2 : 1,
-      reason: reasons,
-      status: 'pending',
+    // 6. Validate extraction
+    const templateData = vendorTemplate?.template_data as Record<string, unknown> | undefined;
+    const vendorPatterns = templateData?.part_number_patterns as string[] | undefined;
+    const validationIssues = validateExtraction(extraction, vendorPatterns);
+
+    if (validationIssues.length > 0) {
+      const errorCount = validationIssues.filter((i) => i.severity === 'error').length;
+      const warningCount = validationIssues.filter((i) => i.severity === 'warning').length;
+      log.info(
+        { ...pipelineContext, errorCount, warningCount, totalIssues: validationIssues.length },
+        'validation issues found'
+      );
+    }
+
+    // 7. Calculate confidence
+    const confidenceAdjustments = templateData?.confidence_adjustments as Record<string, number> | undefined;
+    const overallConfidence = calculateConfidence(
+      extraction,
+      validationIssues,
+      confidenceAdjustments
+    );
+
+    // 8. Match parts
+    const { data: mappings } = await supabase
+      .from('vendor_mappings')
+      .select('*')
+      .eq('organization_id', input.orgId);
+
+    const matches = matchAllLineItems(extraction.line_items, mappings || []);
+    const matchedCount = Object.values(matches).filter((m) => m !== null).length;
+
+    log.info(
+      {
+        ...pipelineContext,
+        matchedCount,
+        totalLineItems: extraction.line_items.length,
+        mappingsAvailable: mappings?.length || 0,
+      },
+      'part matching complete'
+    );
+
+    // 9. Save to database
+    const { data: po, error: poError } = await supabase
+      .from('purchase_orders')
+      .insert({
+        organization_id: input.orgId,
+        vendor_id: vendorDetection.vendor_id,
+        po_number: extraction.header.po_number || `UNKNOWN-${Date.now()}`,
+        po_date: extraction.header.po_date || null,
+        total: extraction.totals.total || null,
+        status: 'pending_review',
+        extraction_confidence: overallConfidence,
+        pdf_storage_path: input.pdfStoragePath,
+        raw_extraction: extraction as unknown as Record<string, unknown>,
+        created_by: input.userId,
+      })
+      .select()
+      .single();
+
+    if (poError || !po) {
+      log.error({ ...pipelineContext, ...errorContext(poError) }, 'failed to save PO to database');
+      throw new Error(`Failed to save PO: ${poError?.message}`);
+    }
+
+    // 10. Save line items
+    const lineItemRows = extraction.line_items.map((item) => {
+      const match = matches[item.line_number];
+      return {
+        purchase_order_id: po.id,
+        line_number: item.line_number,
+        vendor_part_number: item.vendor_part_number,
+        manufacturer_part_number: item.manufacturer_part_number,
+        description: item.description,
+        quantity: item.quantity,
+        unit_of_measure: item.unit_of_measure || 'EA',
+        unit_price: item.unit_price,
+        extended_price: item.extended_price,
+        matched_internal_sku: match?.internal_sku || null,
+        match_confidence: match?.confidence || null,
+        match_method: match?.match_method || null,
+        is_matched: !!match,
+        extraction_confidence: item.confidence,
+        extraction_notes: item.extraction_notes,
+      };
     });
+
+    if (lineItemRows.length > 0) {
+      const { error: lineItemError } = await supabase.from('po_line_items').insert(lineItemRows);
+      if (lineItemError) {
+        log.error({ ...pipelineContext, poId: po.id, ...errorContext(lineItemError) }, 'failed to save line items');
+      }
+    }
+
+    // 11. Determine routing
+    const errorIssues = validationIssues.filter((i) => i.severity === 'error');
+    const autoApproved =
+      overallConfidence >= 85 && errorIssues.length === 0;
+
+    if (autoApproved) {
+      await supabase
+        .from('purchase_orders')
+        .update({ status: 'approved' })
+        .eq('id', po.id);
+      log.info({ ...pipelineContext, poId: po.id, confidence: overallConfidence }, 'PO auto-approved');
+    } else {
+      const reasons: string[] = [];
+      if (overallConfidence < 85) reasons.push(`Low confidence: ${overallConfidence}%`);
+      if (errorIssues.length > 0) reasons.push(`${errorIssues.length} validation error(s)`);
+      if (matchedCount < extraction.line_items.length) {
+        reasons.push(
+          `${extraction.line_items.length - matchedCount} unmatched part(s)`
+        );
+      }
+
+      await supabase.from('review_queue').insert({
+        purchase_order_id: po.id,
+        organization_id: input.orgId,
+        priority: overallConfidence < 60 ? 2 : 1,
+        reason: reasons,
+        status: 'pending',
+      });
+      log.info({ ...pipelineContext, poId: po.id, reasons, priority: overallConfidence < 60 ? 2 : 1 }, 'PO routed to review queue');
+    }
+
+    // 12. Log extraction (includes provider info)
+    const processingTime = Date.now() - startTime;
+
+    await supabase.from('extraction_logs').insert({
+      organization_id: input.orgId,
+      purchase_order_id: po.id,
+      vendor_id: vendorDetection.vendor_id,
+      extraction_confidence: overallConfidence,
+      line_count: extraction.line_items.length,
+      matched_count: matchedCount,
+      processing_time_ms: processingTime,
+      api_cost: extractionCost,
+      success: true,
+    });
+
+    log.info(
+      {
+        ...pipelineContext,
+        poId: po.id,
+        poNumber: extraction.header.po_number,
+        confidence: overallConfidence,
+        matchedCount,
+        totalLineItems: extraction.line_items.length,
+        autoApproved,
+        processingTimeMs: processingTime,
+        cost: extractionCost,
+        provider: usedProvider,
+      },
+      'extraction pipeline completed successfully'
+    );
+
+    return {
+      success: true,
+      purchase_order_id: po.id,
+      extraction,
+      vendor_detection: vendorDetection,
+      matches,
+      validation_issues: validationIssues,
+      overall_confidence: overallConfidence,
+      auto_approved: autoApproved,
+      processing_time_ms: processingTime,
+    };
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+
+    log.error(
+      {
+        ...pipelineContext,
+        processingTimeMs: processingTime,
+        ...errorContext(error),
+      },
+      'extraction pipeline failed'
+    );
+
+    Sentry.captureException(error, {
+      tags: { module: 'extraction-pipeline', orgId: input.orgId },
+      extra: {
+        fileName: input.fileName,
+        userId: input.userId,
+        processingTimeMs: processingTime,
+      },
+    });
+
+    // Re-throw so the caller (upload route) can handle the response
+    throw error;
   }
-
-  // 12. Log extraction (includes provider info)
-  const processingTime = Date.now() - startTime;
-
-  await supabase.from('extraction_logs').insert({
-    organization_id: input.orgId,
-    purchase_order_id: po.id,
-    vendor_id: vendorDetection.vendor_id,
-    extraction_confidence: overallConfidence,
-    line_count: extraction.line_items.length,
-    matched_count: matchedCount,
-    processing_time_ms: processingTime,
-    api_cost: extractionCost,
-    success: true,
-  });
-
-  return {
-    success: true,
-    purchase_order_id: po.id,
-    extraction,
-    vendor_detection: vendorDetection,
-    matches,
-    validation_issues: validationIssues,
-    overall_confidence: overallConfidence,
-    auto_approved: autoApproved,
-    processing_time_ms: processingTime,
-  };
 }

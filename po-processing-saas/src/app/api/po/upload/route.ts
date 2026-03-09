@@ -3,10 +3,15 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { runExtractionPipeline } from '@/lib/extraction/extraction-pipeline';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import { createModuleLogger, errorContext } from '@/lib/logger';
+import { handleApiError, generateRequestId } from '@/lib/api-error-handler';
 
+const log = createModuleLogger('po-upload');
 const limiter = rateLimit({ interval: 60_000, uniqueTokenPerInterval: 500 });
 
 export async function POST(request: NextRequest) {
+  const reqId = generateRequestId();
+
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -17,6 +22,7 @@ export async function POST(request: NextRequest) {
     const ip = getClientIp(request);
     const { success } = await limiter.check(ip, 10);
     if (!success) {
+      log.warn({ reqId, userId: user.id, ip }, 'upload rate limited');
       return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
     }
 
@@ -55,6 +61,7 @@ export async function POST(request: NextRequest) {
     const currentUsage = usage?.pos_processed ?? 0;
 
     if (limit !== 999999 && currentUsage >= limit) {
+      log.warn({ reqId, orgId, currentUsage, limit, tier: orgData?.subscription_tier }, 'monthly PO limit reached');
       return NextResponse.json(
         {
           error: 'Monthly PO limit reached',
@@ -93,6 +100,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    log.info({ reqId, orgId, userId: user.id, fileName: file.name, fileSize: file.size }, 'PO upload started');
+
     // Upload PDF to storage
     const timestamp = Date.now();
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -110,13 +119,14 @@ export async function POST(request: NextRequest) {
       });
 
     if (uploadError) {
+      log.error({ reqId, orgId, ...errorContext(uploadError) }, 'PDF storage upload failed');
       return NextResponse.json(
         { error: `Upload failed: ${uploadError.message}` },
         { status: 500 }
       );
     }
 
-    // Convert to base64 for Claude
+    // Convert to base64 for extraction
     const pdfBase64 = buffer.toString('base64');
 
     // Run extraction pipeline with failure handling
@@ -134,7 +144,7 @@ export async function POST(request: NextRequest) {
       // Clean up orphaned PDF
       await serviceClient.storage.from('po-pdfs').remove([storagePath]);
 
-      console.error('Extraction failed:', extractionError);
+      log.error({ reqId, orgId, fileName: file.name, ...errorContext(extractionError) }, 'extraction pipeline failed, orphaned PDF cleaned up');
       const extractionMessage = extractionError instanceof Error
         ? extractionError.message
         : 'Extraction failed';
@@ -143,6 +153,7 @@ export async function POST(request: NextRequest) {
           error: 'PO extraction failed',
           detail: extractionMessage,
           message: 'The PDF was uploaded but extraction failed. Please try again or contact support.',
+          requestId: reqId,
         },
         { status: 422 }
       );
@@ -161,6 +172,18 @@ export async function POST(request: NextRequest) {
         { onConflict: 'organization_id,month' }
       );
 
+    log.info(
+      {
+        reqId,
+        orgId,
+        poId: result.purchase_order_id,
+        poNumber: result.extraction.header.po_number,
+        confidence: result.overall_confidence,
+        autoApproved: result.auto_approved,
+      },
+      'PO upload completed successfully'
+    );
+
     return NextResponse.json({
       purchase_order_id: result.purchase_order_id,
       po_number: result.extraction.header.po_number,
@@ -173,8 +196,6 @@ export async function POST(request: NextRequest) {
       validation_issues: result.validation_issues,
     });
   } catch (error: unknown) {
-    console.error('PO upload error:', error);
-    const message = error instanceof Error ? error.message : 'Upload failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(error, { module: 'po-upload', reqId }, 500, 'Upload failed. Please try again.');
   }
 }
