@@ -160,8 +160,8 @@ export async function runExtractionPipeline(
         cost: extractionCost,
         lineItems: extraction.line_items.length,
         poNumber: extraction.header.po_number,
-        inputTokens: usage?.input_tokens,
-        outputTokens: usage?.output_tokens,
+        inputTokens: usage?.inputTokens,
+        outputTokens: usage?.outputTokens,
       },
       'AI extraction complete'
     );
