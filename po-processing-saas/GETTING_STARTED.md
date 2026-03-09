@@ -8,23 +8,29 @@
 
 All documentation is available on GitHub:
 
-1. **[TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md)** - Complete system architecture (10,000+ words)
+1. **[docs/USER_GUIDE.md](./docs/USER_GUIDE.md)** - End-user guide
+   - How to upload POs, review, approve, export
+   - How AI extraction and part matching work
+   - Billing tiers and plan management
+   - Troubleshooting common issues
+
+2. **[TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md)** - Complete system architecture (10,000+ words)
    - Full API reference (25 routes)
    - Extraction pipeline details
    - Database schema (10 tables)
    - Troubleshooting guide
 
-2. **[DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md)** - Deployment guide
+3. **[DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md)** - Deployment guide
    - Pre-deployment tasks
    - Production readiness: **85% complete**
    - 48-hour fast-track deployment plan
 
-3. **[README.md](./README.md)** - Quick start guide
+4. **[README.md](./README.md)** - Quick start guide
    - Installation instructions
    - How the system works
    - API routes reference
 
-4. **[CLAUDE.md](./CLAUDE.md)** - Developer/AI agent reference
+5. **[CLAUDE.md](./CLAUDE.md)** - Developer/AI agent reference
 
 ---
 

@@ -147,10 +147,14 @@
 
 ### 8. Monitoring & Observability
 
-#### ⚠️ **Error Tracking (Recommended)**
-- [ ] Set up Sentry/LogRocket/BugSnag
-- [ ] Add error tracking SDK to Next.js
-- [ ] Test error reporting
+#### ✅ **Error Tracking (Complete)**
+- [x] Sentry SDK configured (client, server, edge)
+- [x] Next.js config wrapped with `withSentryConfig`
+- [x] Error boundaries report to Sentry (error.tsx, global-error.tsx, dashboard/error.tsx)
+- [x] Structured logging with pino throughout API routes and extraction pipeline
+- [x] API error handler with Sentry capture and request ID correlation
+- [ ] Set `NEXT_PUBLIC_SENTRY_DSN` in production environment
+- [ ] Test error reporting in production
 
 #### ⚠️ **Analytics (Optional)**
 - [ ] Set up Google Analytics or Plausible
@@ -158,14 +162,14 @@
 
 #### ⚠️ **Uptime Monitoring (Recommended)**
 - [ ] Set up UptimeRobot or Pingdom
-- [ ] Monitor `/api/health` endpoint (create this)
+- [ ] Monitor `/api/health` endpoint
 
 ### 9. Documentation for CM Industries
 
-#### ⚠️ **User Guides**
-- [ ] **Admin Guide**: How to set up organization, add users, configure vendors
-- [ ] **Operator Guide**: How to upload POs, review extractions, approve/reject
-- [ ] **CSV Import Guide**: Format for bulk product/vendor/mapping import
+#### ✅ **User Guides (Complete)**
+- [x] **User Guide**: Comprehensive guide at `docs/USER_GUIDE.md` covering all features
+- [x] **In-app Guide**: Interactive guide page at `/dashboard/guide` with video walkthrough
+- [x] Covers: uploading POs, how matching works, review/approve, billing tiers, exporting, troubleshooting
 
 #### ⚠️ **Training Materials**
 - [ ] Create video walkthrough (Loom/YouTube)
