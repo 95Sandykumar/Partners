@@ -1,13 +1,18 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
+
+const limiter = rateLimit({ interval: 60_000, uniqueTokenPerInterval: 500 });
 
 function escapeCSV(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
   const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
+  // Prevent CSV formula injection: neutralize cells that start with =, +, -, @, tab, or carriage return
+  const sanitized = str.replace(/^[=+\-@\t\r]/, "'$&");
+  if (sanitized.includes(',') || sanitized.includes('"') || sanitized.includes('\n')) {
+    return `"${sanitized.replace(/"/g, '""')}"`;
   }
-  return str;
+  return sanitized;
 }
 
 export async function GET(request: NextRequest) {
@@ -16,6 +21,13 @@ export async function GET(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return new Response('Unauthorized', { status: 401 });
+    }
+
+    // Rate limit exports: 10 per minute per IP (CSV exports are expensive)
+    const ip = getClientIp(request);
+    const { success } = await limiter.check(ip, 10);
+    if (!success) {
+      return new Response('Too many requests', { status: 429 });
     }
 
     // Get user's org for ownership check

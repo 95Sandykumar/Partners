@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Package, Plus, Loader2, Upload, Search, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { CSVImportDialog } from '@/components/products/csv-import-dialog';
 
 interface Product {
   id: string;
@@ -46,8 +47,9 @@ export default function ProductsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
 
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ['products', search],
@@ -108,58 +110,18 @@ export default function ProductsPage() {
     setDialogOpen(true);
   }
 
-  async function handleCSVImport(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleCSVFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setCsvFile(file);
+    setCsvDialogOpen(true);
+    // Reset file input so the same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 
-    const text = await file.text();
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) {
-      toast.error('CSV must have a header row and at least one data row');
-      return;
-    }
-
-    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-    const skuIdx = headers.findIndex((h) => h.includes('sku') || h.includes('part'));
-    const descIdx = headers.findIndex((h) => h.includes('desc'));
-    const catIdx = headers.findIndex((h) => h.includes('cat'));
-    const brandIdx = headers.findIndex((h) => h.includes('brand'));
-    const priceIdx = headers.findIndex((h) => h.includes('price'));
-
-    if (skuIdx === -1) {
-      toast.error('CSV must have a column with "sku" or "part" in the header');
-      return;
-    }
-
-    const rows = lines.slice(1).map((line) => {
-      const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
-      return {
-        internal_sku: cols[skuIdx] || '',
-        description: descIdx >= 0 ? cols[descIdx] : '',
-        category: catIdx >= 0 ? cols[catIdx] : '',
-        brand: brandIdx >= 0 ? cols[brandIdx] : '',
-        unit_price: priceIdx >= 0 ? parseFloat(cols[priceIdx]) || 0 : 0,
-      };
-    }).filter((r) => r.internal_sku);
-
-    try {
-      setSaving(true);
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rows),
-      });
-
-      if (!res.ok) throw new Error('Import failed');
-      const result = await res.json();
-      toast.success(`Imported ${result.inserted} products`);
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-    } catch {
-      toast.error('Failed to import CSV');
-    } finally {
-      setSaving(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+  function handleCSVImportComplete(count: number) {
+    toast.success(`Imported ${count} products`);
+    queryClient.invalidateQueries({ queryKey: ['products'] });
   }
 
   return (
@@ -177,14 +139,13 @@ export default function ProductsPage() {
             type="file"
             accept=".csv"
             className="hidden"
-            onChange={handleCSVImport}
+            onChange={handleCSVFileSelect}
           />
           <Button
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            disabled={saving}
           >
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+            <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -380,6 +341,14 @@ export default function ProductsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* CSV Import Dialog with Column Mapping */}
+      <CSVImportDialog
+        open={csvDialogOpen}
+        onOpenChange={setCsvDialogOpen}
+        file={csvFile}
+        onImportComplete={handleCSVImportComplete}
+      />
     </div>
   );
 }

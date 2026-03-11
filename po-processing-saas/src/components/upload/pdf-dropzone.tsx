@@ -116,18 +116,30 @@ export function PdfDropzone() {
       const formData = new FormData();
       formData.append('file', entry.file);
 
-      // Simulate progress stages
-      setFiles((prev) =>
-        prev.map((f) => (f.id === entry.id ? { ...f, progress: 30 } : f))
-      );
+      // Simulate granular progress stages while API call is in flight
+      const progressInterval = setInterval(() => {
+        setFiles((prev) =>
+          prev.map((f) => {
+            if (f.id !== entry.id || f.status !== 'uploading') return f;
+            // Gradually increase progress, slowing down as it approaches 85%
+            const next = f.progress < 25 ? f.progress + 5
+              : f.progress < 65 ? f.progress + 2
+              : f.progress < 85 ? f.progress + 1
+              : f.progress;
+            return { ...f, progress: Math.min(next, 85) };
+          })
+        );
+      }, 1500);
 
       const res = await fetch('/api/po/upload', {
         method: 'POST',
         body: formData,
       });
 
+      clearInterval(progressInterval);
+
       setFiles((prev) =>
-        prev.map((f) => (f.id === entry.id ? { ...f, progress: 90 } : f))
+        prev.map((f) => (f.id === entry.id ? { ...f, progress: 95 } : f))
       );
 
       if (!res.ok) {
@@ -313,10 +325,16 @@ export function PdfDropzone() {
           <div className="pl-8">
             <Progress value={entry.progress} className="h-1.5" />
             <p className="text-xs text-muted-foreground mt-1">
-              {entry.progress < 30
+              {entry.progress < 15
                 ? 'Uploading PDF...'
-                : entry.progress < 90
-                ? 'Extracting data with AI...'
+                : entry.progress < 30
+                ? 'Detecting vendor...'
+                : entry.progress < 70
+                ? 'Extracting with AI (this usually takes 15-30 seconds)...'
+                : entry.progress < 85
+                ? 'Matching parts...'
+                : entry.progress < 95
+                ? 'Saving results...'
                 : 'Finalizing...'}
             </p>
           </div>

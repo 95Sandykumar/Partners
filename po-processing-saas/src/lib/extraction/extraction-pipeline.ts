@@ -4,11 +4,12 @@ import { detectVendor } from './vendor-detection';
 import { buildExtractionPrompt } from './prompt-builder';
 import { validateExtraction } from './validation';
 import { calculateConfidence } from './confidence-scoring';
-import { matchAllLineItems } from '../matching/match-engine';
+import { matchAllLineItems, matchAllLineItemsWithSemantic } from '../matching/match-engine';
 import { getProviderMode } from './vision-provider';
 import { deepseekProvider } from './deepseek-provider';
 import { mistralProvider } from './mistral-api';
 import { createModuleLogger, errorContext } from '@/lib/logger';
+import { findSimilarExtractions, enhancePromptWithExamples, storeApprovedExtraction, logFewShotUsage } from '@/lib/rag';
 import type { VisionProviderResult } from './vision-provider';
 import type { PipelineResult } from '@/types/extraction';
 
@@ -147,11 +148,57 @@ export async function runExtractionPipeline(
       vendorSlug
     );
 
+    // 4b. RAG: Retrieve similar past extractions and enhance prompt with few-shot examples
+    let enhancedUserPrompt = userPrompt;
+    let ragExampleIds: string[] = [];
+    try {
+      const similarExtractions = await findSimilarExtractions(
+        supabase,
+        input.orgId,
+        vendorDetection.vendor_id,
+        // Use a minimal placeholder extraction for retrieval context
+        {
+          extraction_metadata: {
+            vendor_detected: vendorDetection.vendor_name || '',
+            template_used: vendorTemplate?.version || null,
+            pages_processed: 1,
+            overall_confidence: 0,
+            extraction_timestamp: new Date().toISOString(),
+          },
+          header: {
+            po_number: '',
+            po_date: '',
+            vendor_name: vendorDetection.vendor_name || '',
+            vendor_address: null,
+            ship_to_name: null,
+            ship_to_address: null,
+            payment_terms: null,
+            currency: 'USD',
+          },
+          line_items: [],
+          totals: { subtotal: null, tax: null, shipping: null, total: 0 },
+          extraction_issues: [],
+        }
+      );
+
+      if (similarExtractions.length > 0) {
+        enhancedUserPrompt = enhancePromptWithExamples(userPrompt, similarExtractions);
+        ragExampleIds = similarExtractions.map((e) => e.id);
+        log.info(
+          { ...pipelineContext, exampleCount: similarExtractions.length },
+          'RAG: prompt enhanced with few-shot examples'
+        );
+      }
+    } catch (ragError) {
+      // RAG failures should never block extraction
+      log.warn({ ...pipelineContext, ...errorContext(ragError) }, 'RAG retrieval failed, proceeding without examples');
+    }
+
     // 5. Extract using configured provider(s)
     log.info({ ...pipelineContext, providerMode: getProviderMode() }, 'starting AI extraction');
 
     const { result: extraction, usage, cost: extractionCost, provider: usedProvider } =
-      await extractWithProvider(input.pdfBase64, systemPrompt, userPrompt);
+      await extractWithProvider(input.pdfBase64, systemPrompt, enhancedUserPrompt);
 
     log.info(
       {
@@ -201,13 +248,32 @@ export async function runExtractionPipeline(
       confidenceAdjustments
     );
 
-    // 8. Match parts
+    // 8. Match parts (4-stage deterministic + Stage 5 semantic via RAG)
     const { data: mappings } = await supabase
       .from('vendor_mappings')
       .select('*')
       .eq('organization_id', input.orgId);
 
-    const matches = matchAllLineItems(extraction.line_items, mappings || []);
+    const lineItemsForMatching = extraction.line_items.map((item) => ({
+      line_number: item.line_number,
+      vendor_part_number: item.vendor_part_number,
+      manufacturer_part_number: item.manufacturer_part_number,
+      description: item.description,
+    }));
+
+    let matches: Record<number, import('@/types/extraction').MatchResult | null>;
+    try {
+      matches = await matchAllLineItemsWithSemantic(
+        supabase,
+        input.orgId,
+        lineItemsForMatching,
+        mappings || []
+      );
+    } catch (matchError) {
+      // Semantic matching failed, fall back to deterministic only
+      log.warn({ ...pipelineContext, ...errorContext(matchError) }, 'Semantic matching failed, using deterministic only');
+      matches = matchAllLineItems(extraction.line_items, mappings || []);
+    }
     const matchedCount = Object.values(matches).filter((m) => m !== null).length;
 
     log.info(
@@ -283,6 +349,20 @@ export async function runExtractionPipeline(
         .update({ status: 'approved' })
         .eq('id', po.id);
       log.info({ ...pipelineContext, poId: po.id, confidence: overallConfidence }, 'PO auto-approved');
+
+      // 11b. RAG: Store auto-approved extraction as training data (fire-and-forget)
+      storeApprovedExtraction(supabase, {
+        organizationId: input.orgId,
+        purchaseOrderId: po.id,
+        vendorId: vendorDetection.vendor_id,
+        vendorName: vendorDetection.vendor_name,
+        extractionData: extraction,
+        confidence: overallConfidence,
+        wasCorrected: false,
+        correctionCount: 0,
+      }).catch((ragErr) => {
+        log.warn({ ...pipelineContext, ...errorContext(ragErr) }, 'RAG: failed to store auto-approved extraction');
+      });
     } else {
       const reasons: string[] = [];
       if (overallConfidence < 85) reasons.push(`Low confidence: ${overallConfidence}%`);
@@ -317,6 +397,13 @@ export async function runExtractionPipeline(
       api_cost: extractionCost,
       success: true,
     });
+
+    // 12b. RAG: Log few-shot usage if examples were injected
+    if (ragExampleIds.length > 0) {
+      logFewShotUsage(supabase, input.orgId, po.id, ragExampleIds).catch((ragErr) => {
+        log.warn({ ...pipelineContext, ...errorContext(ragErr) }, 'RAG: failed to log few-shot usage');
+      });
+    }
 
     log.info(
       {

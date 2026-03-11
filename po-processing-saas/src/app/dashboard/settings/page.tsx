@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Loader2, Database, RotateCcw, CheckCircle2, CreditCard, Sparkles } from 'lucide-react';
+import { Loader2, Database, RotateCcw, CheckCircle2, CreditCard, Sparkles, Users } from 'lucide-react';
 import { BILLING_PLANS } from '@/lib/stripe/plans';
 
 interface SeedResult {
@@ -240,6 +240,33 @@ export default function SettingsPage() {
               <Input value={orgInfo.monthly_po_limit} disabled />
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Team Members
+              </CardTitle>
+              <CardDescription>
+                Invite team members to collaborate on PO processing
+              </CardDescription>
+            </div>
+            <Badge variant="secondary">Coming Soon</Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-4">
+            Team management features are currently in development. You&apos;ll be able to invite
+            colleagues, assign roles, and manage permissions.
+          </p>
+          <Button disabled>
+            <Users className="mr-2 h-4 w-4" />
+            Invite Member
+          </Button>
         </CardContent>
       </Card>
 

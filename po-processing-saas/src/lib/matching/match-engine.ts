@@ -1,7 +1,12 @@
+import { SupabaseClient } from '@supabase/supabase-js';
 import type { VendorMapping } from '@/types/database';
 import type { MatchResult } from '@/types/extraction';
 import { normalizePartNumber, stripKnownPrefix } from './prefix-normalizer';
 import { createFuzzyMatcher } from './fuzzy-matcher';
+import { findSemanticPartMatch, SEMANTIC_MATCH_THRESHOLD } from '@/lib/rag/retrieval-service';
+import { createModuleLogger, errorContext } from '@/lib/logger';
+
+const log = createModuleLogger('match-engine');
 
 export function matchPartNumber(
   vendorPartNumber: string,
@@ -143,6 +148,109 @@ export function matchAllLineItems(
       item.vendor_part_number,
       item.manufacturer_part_number,
       mappings
+    );
+  }
+
+  return results;
+}
+
+/**
+ * Enhanced matching that includes Stage 5: Semantic matching via RAG.
+ * Runs the standard 4-stage matching first, then attempts semantic
+ * matching for any unmatched line items.
+ *
+ * @param supabase - Supabase client for RAG queries
+ * @param orgId - Organization ID for tenant isolation
+ * @param lineItems - Line items to match
+ * @param mappings - Vendor mappings for deterministic matching
+ * @returns Match results with semantic matches included
+ */
+export async function matchAllLineItemsWithSemantic(
+  supabase: SupabaseClient,
+  orgId: string,
+  lineItems: Array<{
+    line_number: number;
+    vendor_part_number: string;
+    manufacturer_part_number: string | null;
+    description: string;
+  }>,
+  mappings: VendorMapping[]
+): Promise<Record<number, MatchResult | null>> {
+  // Stage 1-4: Run standard deterministic matching
+  const results = matchAllLineItems(lineItems, mappings);
+
+  // Stage 5: Semantic matching for unmatched items
+  const unmatchedItems = lineItems.filter(
+    (item) => results[item.line_number] === null
+  );
+
+  if (unmatchedItems.length === 0) {
+    return results;
+  }
+
+  log.info(
+    { orgId, unmatchedCount: unmatchedItems.length },
+    'Attempting semantic matching for unmatched parts'
+  );
+
+  // Run semantic searches in parallel for unmatched items
+  const semanticPromises = unmatchedItems.map(async (item) => {
+    try {
+      const semanticMatch = await findSemanticPartMatch(
+        supabase,
+        orgId,
+        item.vendor_part_number,
+        item.manufacturer_part_number,
+        item.description
+      );
+
+      if (semanticMatch) {
+        // Cap confidence at 70 for semantic matches
+        const confidence = Math.min(
+          Math.round(semanticMatch.similarity * 70),
+          70
+        );
+
+        const matchResult: MatchResult = {
+          internal_sku: semanticMatch.internalSku,
+          confidence,
+          match_method: 'semantic',
+          matched_vendor_part: semanticMatch.vendorPartNumber,
+          matched_mfg_part: semanticMatch.manufacturerPartNumber,
+        };
+
+        return { lineNumber: item.line_number, result: matchResult };
+      }
+    } catch (error) {
+      log.warn(
+        {
+          ...errorContext(error),
+          lineNumber: item.line_number,
+          vendorPart: item.vendor_part_number,
+        },
+        'Semantic match failed for line item'
+      );
+    }
+
+    return { lineNumber: item.line_number, result: null };
+  });
+
+  const semanticResults = await Promise.all(semanticPromises);
+
+  // Merge semantic results into the main results
+  let semanticMatchCount = 0;
+  for (const { lineNumber, result } of semanticResults) {
+    if (result !== null) {
+      // Create new results object (immutability)
+      results[lineNumber] = result;
+      semanticMatchCount++;
+    }
+  }
+
+  if (semanticMatchCount > 0) {
+    log.info(
+      { orgId, semanticMatchCount, totalUnmatched: unmatchedItems.length },
+      'Semantic matching complete'
     );
   }
 

@@ -56,7 +56,7 @@ export interface VendorDetectionResult {
 export interface MatchResult {
   internal_sku: string;
   confidence: number;
-  match_method: 'exact' | 'prefix' | 'fuzzy' | 'manual';
+  match_method: 'exact' | 'prefix' | 'fuzzy' | 'manual' | 'semantic';
   matched_vendor_part: string;
   matched_mfg_part: string | null;
 }

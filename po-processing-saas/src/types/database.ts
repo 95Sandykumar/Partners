@@ -3,7 +3,7 @@ export type UserRole = 'admin' | 'operator' | 'viewer';
 export type POStatus = 'pending_review' | 'approved' | 'rejected' | 'processed';
 export type ReviewStatus = 'pending' | 'in_review' | 'completed';
 export type MatchSource = 'manual' | 'extracted' | 'verified' | 'auto';
-export type MatchMethod = 'exact' | 'prefix' | 'fuzzy' | 'manual';
+export type MatchMethod = 'exact' | 'prefix' | 'fuzzy' | 'manual' | 'semantic';
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'inactive' | 'trialing';
 

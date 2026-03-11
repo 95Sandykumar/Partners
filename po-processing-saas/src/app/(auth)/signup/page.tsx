@@ -148,7 +148,8 @@ export default function SignupPage() {
         throw new Error(data.error || 'Failed to set up account');
       }
 
-      router.push('/dashboard/onboarding');
+      // Redirect to email verification page
+      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred');

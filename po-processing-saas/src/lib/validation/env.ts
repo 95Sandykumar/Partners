@@ -8,6 +8,9 @@ const envSchema = z.object({
 
 const optionalEnvSchema = z.object({
   MISTRAL_API_KEY: z.string().min(1).optional(),
+  DEEPSEEK_API_KEY: z.string().min(1).optional(),
+  DEEPSEEK_ENDPOINT: z.string().url().optional(),
+  VISION_PROVIDER: z.enum(['hybrid', 'deepseek', 'mistral']).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   NEXT_PUBLIC_APP_URL: z.string().url().optional(),
@@ -43,11 +46,23 @@ export function validateEnv(): void {
 
   // Production-specific checks
   if (isProduction) {
-    if (!process.env.MISTRAL_API_KEY) {
-      throw new Error('MISTRAL_API_KEY must be set in production');
+    const provider = process.env.VISION_PROVIDER?.toLowerCase() || 'hybrid';
+
+    if (provider === 'mistral' || provider === 'hybrid') {
+      if (!process.env.MISTRAL_API_KEY) {
+        throw new Error('MISTRAL_API_KEY must be set when VISION_PROVIDER includes mistral');
+      }
+    }
+    if (provider === 'deepseek' || provider === 'hybrid') {
+      if (!process.env.DEEPSEEK_API_KEY) {
+        throw new Error('DEEPSEEK_API_KEY must be set when VISION_PROVIDER includes deepseek');
+      }
     }
     if (!process.env.STRIPE_SECRET_KEY) {
       console.warn('[env] STRIPE_SECRET_KEY not set - billing features will be unavailable');
+    }
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      console.warn('[env] STRIPE_WEBHOOK_SECRET not set - billing webhooks will be unavailable');
     }
   }
 }

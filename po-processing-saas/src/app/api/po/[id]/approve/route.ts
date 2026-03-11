@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { detectCorrections, recordCorrections, updateAccuracyMetrics } from '@/lib/extraction/correction-tracker';
 import { validateBody } from '@/lib/validation/validate';
 import { POApprovalSchema } from '@/lib/validation/schemas';
+import { storeCorrectedExtraction, storeApprovedExtraction, storePartEmbeddingsBatch } from '@/lib/rag';
 import type { ExtractionResult } from '@/types/extraction';
 import type { POLineItem } from '@/types/database';
 
@@ -36,13 +37,18 @@ export async function POST(
 
     // --- Correction Tracking ---
     // Fetch PO raw_extraction and current line items BEFORE applying edits
+    let poDataForRag: { raw_extraction: unknown; vendor_id: string | null; organization_id: string; extraction_confidence: number | null } | null = null;
+    let correctionCount = 0;
+
     if (line_items && Array.isArray(line_items) && line_items.length > 0) {
       const { data: po } = await supabase
         .from('purchase_orders')
-        .select('raw_extraction, vendor_id, organization_id')
+        .select('raw_extraction, vendor_id, organization_id, extraction_confidence')
         .eq('id', id)
         .eq('organization_id', userProfile.organization_id)
         .single();
+
+      poDataForRag = po;
 
       if (po?.raw_extraction) {
         const { data: currentDbItems } = await supabase
@@ -57,6 +63,8 @@ export async function POST(
             line_items,
             currentDbItems as POLineItem[]
           );
+
+          correctionCount = corrections.length;
 
           if (corrections.length > 0) {
             await recordCorrections(
@@ -75,6 +83,15 @@ export async function POST(
           }
         }
       }
+    } else {
+      // No line item edits -- fetch PO data for RAG storage
+      const { data: po } = await supabase
+        .from('purchase_orders')
+        .select('raw_extraction, vendor_id, organization_id, extraction_confidence')
+        .eq('id', id)
+        .eq('organization_id', userProfile.organization_id)
+        .single();
+      poDataForRag = po;
     }
 
     // --- Update line items with operator edits ---
@@ -123,6 +140,51 @@ export async function POST(
               onConflict: 'organization_id,vendor_id,vendor_part_number',
             }
           );
+      }
+
+      // RAG: Embed new part mappings for semantic search (fire-and-forget)
+      storePartEmbeddingsBatch(
+        supabase,
+        userProfile.organization_id,
+        new_mappings.map((m) => ({
+          vendorMappingId: null,
+          vendorPartNumber: m.vendor_part_number,
+          manufacturerPartNumber: m.manufacturer_part_number || null,
+          internalSku: m.internal_sku,
+          description: null,
+        }))
+      ).catch((err) => console.error('RAG part embedding failed:', err));
+    }
+
+    // --- RAG: Store extraction in memory layer ---
+    if (action !== 'reject' && poDataForRag?.raw_extraction) {
+      const extractionData = poDataForRag.raw_extraction as unknown as ExtractionResult;
+      const vendorName = extractionData.header?.vendor_name || null;
+      const confidence = poDataForRag.extraction_confidence || 0;
+
+      if (correctionCount > 0) {
+        // Corrected extraction: higher quality training data
+        storeCorrectedExtraction(supabase, {
+          organizationId: userProfile.organization_id,
+          purchaseOrderId: id,
+          vendorId: poDataForRag.vendor_id,
+          vendorName,
+          correctedExtraction: extractionData,
+          confidence,
+          correctionCount,
+        }).catch((err) => console.error('RAG corrected extraction storage failed:', err));
+      } else {
+        // Approved without corrections: baseline training data
+        storeApprovedExtraction(supabase, {
+          organizationId: userProfile.organization_id,
+          purchaseOrderId: id,
+          vendorId: poDataForRag.vendor_id,
+          vendorName,
+          extractionData,
+          confidence,
+          wasCorrected: false,
+          correctionCount: 0,
+        }).catch((err) => console.error('RAG extraction storage failed:', err));
       }
     }
 

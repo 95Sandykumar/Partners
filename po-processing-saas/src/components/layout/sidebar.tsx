@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -24,7 +25,7 @@ import { Separator } from '@/components/ui/separator';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Upload PO', href: '/dashboard/upload', icon: Upload },
-  { name: 'Review Queue', href: '/dashboard/review', icon: ClipboardCheck },
+  { name: 'Review Queue', href: '/dashboard/review', icon: ClipboardCheck, showBadge: true },
   { name: 'All POs', href: '/dashboard/pos', icon: FileText },
   { name: 'Products', href: '/dashboard/products', icon: Package },
   { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
@@ -37,6 +38,20 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+
+  // Fetch pending review count for badge
+  const { data: stats } = useQuery<{ pending_reviews?: number }>({
+    queryKey: ['dashboard-stats-sidebar'],
+    queryFn: async () => {
+      const res = await fetch('/api/dashboard/stats');
+      if (!res.ok) return {};
+      return res.json();
+    },
+    refetchInterval: 30_000, // Refresh every 30 seconds
+    staleTime: 15_000,
+  });
+
+  const pendingCount = stats?.pending_reviews ?? 0;
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -69,7 +84,12 @@ export function Sidebar() {
                 )}
               >
                 <item.icon className={cn('h-[18px] w-[18px]', isActive && 'text-primary')} />
-                {item.name}
+                <span className="flex-1">{item.name}</span>
+                {item.showBadge && pendingCount > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                    {pendingCount > 99 ? '99+' : pendingCount}
+                  </span>
+                )}
               </Link>
             );
           })}

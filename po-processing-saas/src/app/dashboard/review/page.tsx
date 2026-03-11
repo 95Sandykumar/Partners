@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -21,8 +21,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ClipboardCheck, ExternalLink } from 'lucide-react';
+import { ClipboardCheck, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+
+interface PaginatedResponse {
+  data: Record<string, unknown>[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
 
 function ConfidenceBadge({ confidence }: { confidence: number }) {
   if (confidence >= 85) {
@@ -36,15 +44,26 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 
 export default function ReviewQueuePage() {
   const [statusFilter, setStatusFilter] = useState('pending');
+  const [page, setPage] = useState(1);
 
-  const { data: reviews, isLoading } = useQuery({
-    queryKey: ['review-queue', statusFilter],
+  const { data: response, isLoading } = useQuery<PaginatedResponse>({
+    queryKey: ['review-queue', statusFilter, page],
     queryFn: async () => {
-      const res = await fetch(`/api/review-queue?status=${statusFilter}`);
+      const res = await fetch(`/api/review-queue?status=${statusFilter}&page=${page}&limit=20`);
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
     },
   });
+
+  const reviews = response?.data || [];
+  const totalPages = response?.totalPages || 1;
+  const total = response?.total || 0;
+
+  // Reset page when filter changes
+  function handleFilterChange(value: string) {
+    setStatusFilter(value);
+    setPage(1);
+  }
 
   return (
     <div className="space-y-6">
@@ -53,9 +72,10 @@ export default function ReviewQueuePage() {
           <h2 className="text-2xl font-bold tracking-tight">Review Queue</h2>
           <p className="text-muted-foreground">
             POs that need human review before approval
+            {total > 0 && <span className="ml-1">({total} total)</span>}
           </p>
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={handleFilterChange}>
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -76,7 +96,7 @@ export default function ReviewQueuePage() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : reviews && reviews.length > 0 ? (
+          ) : reviews.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -90,7 +110,7 @@ export default function ReviewQueuePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reviews.map((review: Record<string, unknown>) => {
+                {reviews.map((review) => {
                   const po = review.purchase_order as Record<string, unknown>;
                   const vendor = po?.vendor as Record<string, unknown>;
                   return (
@@ -143,6 +163,35 @@ export default function ReviewQueuePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Page {page} of {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

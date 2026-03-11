@@ -17,10 +17,10 @@ export async function GET() {
     const supabase = await createServiceClient();
     const { error } = await supabase.from('organizations').select('id').limit(1);
     checks.database = error
-      ? { status: 'unhealthy', message: error.message, latency_ms: Date.now() - dbStart }
+      ? { status: 'unhealthy', latency_ms: Date.now() - dbStart }
       : { status: 'healthy', latency_ms: Date.now() - dbStart };
-  } catch (e) {
-    checks.database = { status: 'unhealthy', message: String(e), latency_ms: Date.now() - dbStart };
+  } catch {
+    checks.database = { status: 'unhealthy', latency_ms: Date.now() - dbStart };
   }
 
   // Auth service
@@ -31,10 +31,10 @@ export async function GET() {
     // Expected to fail without token, but service should respond
     checks.auth = { status: 'healthy', latency_ms: Date.now() - authStart };
     if (error && error.message.includes('fetch')) {
-      checks.auth = { status: 'unhealthy', message: error.message, latency_ms: Date.now() - authStart };
+      checks.auth = { status: 'unhealthy', latency_ms: Date.now() - authStart };
     }
-  } catch (e) {
-    checks.auth = { status: 'unhealthy', message: String(e), latency_ms: Date.now() - authStart };
+  } catch {
+    checks.auth = { status: 'unhealthy', latency_ms: Date.now() - authStart };
   }
 
   // Storage bucket
@@ -43,29 +43,26 @@ export async function GET() {
     const supabase = await createServiceClient();
     const { error } = await supabase.storage.getBucket('po-pdfs');
     checks.storage = error
-      ? { status: 'unhealthy', message: error.message, latency_ms: Date.now() - storageStart }
+      ? { status: 'unhealthy', latency_ms: Date.now() - storageStart }
       : { status: 'healthy', latency_ms: Date.now() - storageStart };
-  } catch (e) {
-    checks.storage = { status: 'unhealthy', message: String(e), latency_ms: Date.now() - storageStart };
+  } catch {
+    checks.storage = { status: 'unhealthy', latency_ms: Date.now() - storageStart };
   }
 
-  // Mistral API key configured
-  const hasMistralKey = !!process.env.MISTRAL_API_KEY;
-  checks.extraction_api = hasMistralKey
+  // Mistral API key configured (no detail exposed to avoid info leakage)
+  checks.extraction_api = process.env.MISTRAL_API_KEY
     ? { status: 'healthy' }
-    : { status: 'unhealthy', message: 'MISTRAL_API_KEY not configured' };
+    : { status: 'unhealthy' };
 
   // Stripe key configured
-  const hasStripeKey = !!process.env.STRIPE_SECRET_KEY;
-  checks.stripe = hasStripeKey
+  checks.stripe = process.env.STRIPE_SECRET_KEY
     ? { status: 'healthy' }
-    : { status: 'unhealthy', message: 'STRIPE_SECRET_KEY not configured' };
+    : { status: 'unhealthy' };
 
   // Stripe webhook secret configured
-  const hasWebhookSecret = !!process.env.STRIPE_WEBHOOK_SECRET;
-  checks.stripe_webhook = hasWebhookSecret
+  checks.stripe_webhook = process.env.STRIPE_WEBHOOK_SECRET
     ? { status: 'healthy' }
-    : { status: 'unhealthy', message: 'STRIPE_WEBHOOK_SECRET not configured' };
+    : { status: 'unhealthy' };
 
   // Determine overall health
   for (const check of Object.values(checks)) {

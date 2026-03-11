@@ -13,7 +13,7 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({ request });
@@ -32,6 +32,7 @@ export async function updateSession(request: NextRequest) {
   // Public routes that don't require authentication
   const publicPaths = [
     '/login', '/signup', '/forgot-password', '/reset-password',
+    '/verify-email',
     '/terms', '/privacy', '/security', '/dpa',
     '/api/health', '/api/billing/webhook', '/api/auth/setup',
   ];
@@ -50,8 +51,28 @@ export async function updateSession(request: NextRequest) {
     (request.nextUrl.pathname.startsWith('/login') ||
       request.nextUrl.pathname.startsWith('/signup'))
   ) {
+    // Check if email is verified before redirecting to dashboard
+    if (!user.email_confirmed_at) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/verify-email';
+      url.searchParams.set('email', user.email || '');
+      return NextResponse.redirect(url);
+    }
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
+    return NextResponse.redirect(url);
+  }
+
+  // Block unverified users from accessing dashboard
+  if (
+    user &&
+    !user.email_confirmed_at &&
+    !isPublicPath &&
+    !request.nextUrl.pathname.startsWith('/verify-email')
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/verify-email';
+    url.searchParams.set('email', user.email || '');
     return NextResponse.redirect(url);
   }
 
